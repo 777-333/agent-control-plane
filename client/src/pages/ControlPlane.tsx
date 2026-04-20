@@ -1,7 +1,7 @@
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { createEmptyApprovalStageDraft, getLaneLabel, moveStageToDropZone, reorderApprovalChainStages, type ApprovalChainStageDraft } from "@/lib/approval-chain-editor";
+import { createDefaultSimulationSignals, createEmptyApprovalStageDraft, getLaneLabel, moveStageToDropZone, reorderApprovalChainStages, simulateApprovalChain, type ApprovalChainStageDraft } from "@/lib/approval-chain-editor";
 import { Loader2, Shield, Activity, BellRing, BrainCircuit, FileSearch, Blocks, UserCog, Fingerprint, ChartNoAxesCombined, Waypoints, Sparkles, GripVertical } from "lucide-react";
 import { toast } from "sonner";
 import { useMemo, useState } from "react";
@@ -623,6 +623,7 @@ export function ApprovalsPage() {
   const [approvalChainSelections, setApprovalChainSelections] = useState<Record<number, number>>({});
   const [draggedStageIndex, setDraggedStageIndex] = useState<number | null>(null);
   const [dropStageIndex, setDropStageIndex] = useState<number | null>(null);
+  const [simulationSignals, setSimulationSignals] = useState(createDefaultSimulationSignals);
 
   const resolveMutation = trpc.approvals.resolve.useMutation({
     onSuccess: async () => {
@@ -678,8 +679,11 @@ export function ApprovalsPage() {
         laneKey: (stage.laneKey as "main" | "parallel-a" | "parallel-b" | "branch-a" | "branch-b" | undefined) ?? "main",
         branchSourceStageOrder: stage.branchSourceStageOrder ?? null,
         branchLabel: stage.branchLabel ?? "",
+        branchField: stage.branchField ?? "riskLevel",
         branchOperator: stage.branchOperator ?? "always",
         branchValue: stage.branchValue ?? "",
+        quorumMode: stage.quorumMode ?? "all",
+        quorumTarget: stage.quorumTarget ?? 1,
         slaMinutes: stage.slaMinutes,
         escalationAfterMinutes: stage.escalationAfterMinutes,
         escalationTargetLabel: stage.escalationTargetLabel,
@@ -693,6 +697,8 @@ export function ApprovalsPage() {
       stages: current.stages.map((stage, index) => (index === stageIndex ? updater(stage) : stage)),
     }));
   };
+
+  const simulationPreview = useMemo(() => simulateApprovalChain(chainForm.stages, simulationSignals), [chainForm.stages, simulationSignals]);
 
   const saveChain = () => {
     const payload = {
@@ -876,8 +882,10 @@ export function ApprovalsPage() {
                         stages: moveStageToDropZone(current.stages, draggedStageIndex, {
                           stageMode: zone.stageMode,
                           laneKey: zone.laneKey,
-                          branchSourceStageOrder: zone.stageMode === "branch" ? 1 : null,
-                          branchLabel: zone.stageMode === "branch" ? "Nur bei Bedingung" : "",
+                           branchSourceStageOrder: zone.stageMode === "branch" ? 1 : null,
+                           branchLabel: zone.stageMode === "branch" ? "Nur bei Bedingung" : "",
+                           branchField: zone.stageMode === "branch" ? "riskLevel" : undefined,
+
                         }),
                       }));
                       setDraggedStageIndex(null);
@@ -966,23 +974,90 @@ export function ApprovalsPage() {
                         <input type="number" className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Eskalation nach Minuten" value={stage.escalationAfterMinutes} onChange={e => updateStage(index, item => ({ ...item, escalationAfterMinutes: Number(e.target.value) }))} />
                       </div>
                       <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Eskalationsziel" value={stage.escalationTargetLabel} onChange={e => updateStage(index, item => ({ ...item, escalationTargetLabel: e.target.value }))} />
-                      {stage.stageMode === "branch" ? (
-                        <div className="grid gap-3 rounded-2xl border border-amber-200 bg-amber-50/70 p-4 md:grid-cols-2 xl:grid-cols-4">
-                          <input type="number" className="h-11 w-full rounded-2xl border border-amber-200 bg-white px-4 text-sm" placeholder="Quellstufe" value={stage.branchSourceStageOrder ?? 1} onChange={e => updateStage(index, item => ({ ...item, branchSourceStageOrder: Number(e.target.value) }))} />
-                          <input className="h-11 w-full rounded-2xl border border-amber-200 bg-white px-4 text-sm" placeholder="Branch Label" value={stage.branchLabel} onChange={e => updateStage(index, item => ({ ...item, branchLabel: e.target.value }))} />
-                          <select className="h-11 w-full rounded-2xl border border-amber-200 bg-white px-4 text-sm" value={stage.branchOperator} onChange={e => updateStage(index, item => ({ ...item, branchOperator: e.target.value as ApprovalChainStageDraft["branchOperator"] }))}>
-                            <option value="always">always</option>
-                            <option value="equals">equals</option>
-                            <option value="contains">contains</option>
-                            <option value="greater_than">greater_than</option>
-                            <option value="less_than">less_than</option>
+                      {stage.stageMode === "parallel" ? (
+                        <div className="grid gap-3 rounded-2xl border border-sky-200 bg-sky-50/70 p-4 md:grid-cols-2 xl:grid-cols-3">
+                          <select className="h-11 w-full rounded-2xl border border-sky-200 bg-white px-4 text-sm" value={stage.quorumMode} onChange={e => updateStage(index, item => ({ ...item, quorumMode: e.target.value as ApprovalChainStageDraft["quorumMode"] }))}>
+                            <option value="all">all</option>
+                            <option value="majority">majority</option>
+                            <option value="minimum_count">minimum_count</option>
+                            <option value="distinct_roles">distinct_roles</option>
                           </select>
-                          <input className="h-11 w-full rounded-2xl border border-amber-200 bg-white px-4 text-sm" placeholder="Vergleichswert" value={stage.branchValue} onChange={e => updateStage(index, item => ({ ...item, branchValue: e.target.value }))} />
+                          <input type="number" min={1} className="h-11 w-full rounded-2xl border border-sky-200 bg-white px-4 text-sm" placeholder="Quorum-Ziel" value={stage.quorumTarget} onChange={e => updateStage(index, item => ({ ...item, quorumTarget: Number(e.target.value) || 1 }))} />
+                          <div className="rounded-2xl border border-sky-200 bg-white px-4 py-3 text-xs leading-5 text-slate-600">
+                            Sammel-Gate öffnet erst, wenn das konfigurierte Quorum für die aktiven Parallelstufen erreicht ist.
+                          </div>
                         </div>
+                      ) : null}
+                      {stage.stageMode === "branch" ? (
+                         <div className="grid gap-3 rounded-2xl border border-amber-200 bg-amber-50/70 p-4 md:grid-cols-2 xl:grid-cols-5">
+                           <input type="number" className="h-11 w-full rounded-2xl border border-amber-200 bg-white px-4 text-sm" placeholder="Quellstufe" value={stage.branchSourceStageOrder ?? 1} onChange={e => updateStage(index, item => ({ ...item, branchSourceStageOrder: Number(e.target.value) }))} />
+                           <input className="h-11 w-full rounded-2xl border border-amber-200 bg-white px-4 text-sm" placeholder="Branch Label" value={stage.branchLabel} onChange={e => updateStage(index, item => ({ ...item, branchLabel: e.target.value }))} />
+                           <select className="h-11 w-full rounded-2xl border border-amber-200 bg-white px-4 text-sm" value={stage.branchField} onChange={e => updateStage(index, item => ({ ...item, branchField: e.target.value as ApprovalChainStageDraft["branchField"] }))}>
+                             <option value="riskLevel">riskLevel</option>
+                             <option value="requestedBy">requestedBy</option>
+                             <option value="agentName">agentName</option>
+                             <option value="title">title</option>
+                             <option value="summary">summary</option>
+                             <option value="chainName">chainName</option>
+                             <option value="escalationStatus">escalationStatus</option>
+                           </select>
+                           <select className="h-11 w-full rounded-2xl border border-amber-200 bg-white px-4 text-sm" value={stage.branchOperator} onChange={e => updateStage(index, item => ({ ...item, branchOperator: e.target.value as ApprovalChainStageDraft["branchOperator"] }))}>
+                             <option value="always">always</option>
+                             <option value="equals">equals</option>
+                             <option value="contains">contains</option>
+                             <option value="greater_than">greater_than</option>
+                             <option value="less_than">less_than</option>
+                           </select>
+                           <input className="h-11 w-full rounded-2xl border border-amber-200 bg-white px-4 text-sm" placeholder="Vergleichswert" value={stage.branchValue} onChange={e => updateStage(index, item => ({ ...item, branchValue: e.target.value }))} />
+                         </div>
+
                       ) : null}
                     </div>
                   </div>
                 ))}
+              </div>
+
+              <div className="rounded-[24px] border border-slate-200 bg-slate-50/80 p-5">
+                <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-950">Grafische Simulationsansicht</p>
+                    <p className="mt-1 text-sm leading-6 text-slate-600">Prüfe vor dem Speichern, welche Stufen auf Basis strukturierter Signale wirklich aktiviert werden und welche Branches übersprungen bleiben.</p>
+                  </div>
+                  <ModuleBadge label={`${simulationPreview.filter(stage => stage.reachable).length}/${simulationPreview.length} aktiv im Preview`} tone="neutral" />
+                </div>
+                <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  {Object.entries(simulationSignals).map(([key, value]) => (
+                    <label key={key} className="grid gap-2 text-xs font-medium uppercase tracking-[0.16em] text-slate-500">
+                      {key}
+                      <input
+                        className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-normal tracking-normal text-slate-700"
+                        value={value}
+                        onChange={event => setSimulationSignals(current => ({ ...current, [key]: event.target.value }))}
+                      />
+                    </label>
+                  ))}
+                </div>
+                <div className="mt-5 grid gap-3">
+                  {simulationPreview.map(stage => (
+                    <div key={`${stage.order}-${stage.stageName}`} className={`rounded-2xl border px-4 py-4 ${stage.reachable ? "border-emerald-200 bg-emerald-50/70" : "border-slate-200 bg-white"}`}>
+                      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-sm font-semibold text-slate-950">{stage.order}. {stage.stageName}</p>
+                            <ModuleBadge label={getLaneLabel(stage.laneKey)} tone={stage.stageMode === "branch" ? "warning" : stage.stageMode === "parallel" ? "success" : "neutral"} />
+                            <ModuleBadge label={stage.reachable ? "Aktiv im Pfad" : "Übersprungen"} tone={stage.reachable ? "success" : "neutral"} />
+                          </div>
+                          <p className="mt-2 text-sm leading-6 text-slate-600">{stage.reason}</p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {stage.quorumLabel ? <ModuleBadge label={stage.quorumLabel} tone="success" /> : null}
+                          {stage.branchMatched === true ? <ModuleBadge label="Branch erfüllt" tone="warning" /> : null}
+                          {stage.branchMatched === false ? <ModuleBadge label="Branch nicht erfüllt" tone="neutral" /> : null}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
 
               <div className="flex flex-wrap gap-3">

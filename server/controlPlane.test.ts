@@ -113,8 +113,11 @@ describe("control plane router", () => {
           laneKey: "main",
           branchSourceStageOrder: null,
           branchLabel: "",
+          branchField: "riskLevel",
           branchOperator: "always",
           branchValue: "",
+          quorumMode: "all",
+          quorumTarget: 1,
           slaMinutes: 20,
           escalationAfterMinutes: 30,
           escalationTargetLabel: "Head of Security Operations",
@@ -127,6 +130,7 @@ describe("control plane router", () => {
           laneKey: "parallel-a",
           branchSourceStageOrder: null,
           branchLabel: "",
+          branchField: "riskLevel",
           branchOperator: "always",
           branchValue: "",
           slaMinutes: 30,
@@ -153,8 +157,11 @@ describe("control plane router", () => {
           laneKey: "main",
           branchSourceStageOrder: null,
           branchLabel: "",
+          branchField: "riskLevel",
           branchOperator: "always",
           branchValue: "",
+          quorumMode: "all",
+          quorumTarget: 1,
           slaMinutes: 20,
           escalationAfterMinutes: 25,
           escalationTargetLabel: "Head of Security Operations",
@@ -167,8 +174,11 @@ describe("control plane router", () => {
           laneKey: "branch-a",
           branchSourceStageOrder: 1,
           branchLabel: "Nur bei Sicherheitsvorfall",
+          branchField: "title",
           branchOperator: "contains",
           branchValue: "Security",
+          quorumMode: "all",
+          quorumTarget: 1,
           slaMinutes: 30,
           escalationAfterMinutes: 40,
           escalationTargetLabel: "Executive Risk Committee",
@@ -178,6 +188,7 @@ describe("control plane router", () => {
 
     expect(updated.escalationMode).toBe("parallel");
     expect(updated.stages[1]?.stageName).toBe("Executive Approval");
+    expect(updated.stages[1]?.branchField).toBe("title");
 
     const chains = await caller.approvals.chains();
     expect(chains.some(item => item.id === created.id && item.escalationMode === "parallel")).toBe(true);
@@ -209,6 +220,7 @@ describe("control plane router", () => {
           laneKey: "main",
           branchSourceStageOrder: null,
           branchLabel: "",
+          branchField: "riskLevel",
           branchOperator: "always",
           branchValue: "",
           slaMinutes: 15,
@@ -223,8 +235,11 @@ describe("control plane router", () => {
           laneKey: "parallel-a",
           branchSourceStageOrder: null,
           branchLabel: "",
+          branchField: "riskLevel",
           branchOperator: "always",
           branchValue: "",
+          quorumMode: "all",
+          quorumTarget: 1,
           slaMinutes: 20,
           escalationAfterMinutes: 30,
           escalationTargetLabel: "Finance Director",
@@ -237,8 +252,11 @@ describe("control plane router", () => {
           laneKey: "parallel-b",
           branchSourceStageOrder: null,
           branchLabel: "",
+          branchField: "riskLevel",
           branchOperator: "always",
           branchValue: "",
+          quorumMode: "all",
+          quorumTarget: 1,
           slaMinutes: 20,
           escalationAfterMinutes: 30,
           escalationTargetLabel: "CISO",
@@ -251,8 +269,11 @@ describe("control plane router", () => {
           laneKey: "branch-a",
           branchSourceStageOrder: 3,
           branchLabel: "High risk only",
-          branchOperator: "contains",
-          branchValue: "high-risk",
+          branchField: "riskLevel",
+          branchOperator: "equals",
+          branchValue: "critical",
+          quorumMode: "all",
+          quorumTarget: 1,
           slaMinutes: 25,
           escalationAfterMinutes: 35,
           escalationTargetLabel: "CEO Office",
@@ -285,7 +306,7 @@ describe("control plane router", () => {
     const afterParallelB = await caller.approvals.resolve({
       approvalId: 1,
       decision: "approved",
-      note: "high-risk confirmed",
+      note: "parallel security review done",
     });
     expect(afterParallelB.status).toBe("pending");
     expect(afterParallelB.stages[3]?.status).toBe("pending");
@@ -297,6 +318,120 @@ describe("control plane router", () => {
     });
     expect(afterBranch.status).toBe("approved");
     expect(afterBranch.stages.every(stage => stage.status === "approved")).toBe(true);
+  });
+
+  it("supports majority quorum for parallel Sammel-Gates", async () => {
+    const caller = appRouter.createCaller(createAuthContext());
+
+    const created = await caller.approvals.createChain({
+      name: "Majority quorum chain",
+      description: "Parallelgate mit Mehrheitsregel für sensible Freigaben.",
+      escalationMode: "parallel",
+      stages: [
+        {
+          stageName: "Initial Review",
+          requiredRole: "approver",
+          defaultApproverLabel: "Ops Lead",
+          stageMode: "serial",
+          laneKey: "main",
+          branchSourceStageOrder: null,
+          branchLabel: "",
+          branchField: "riskLevel",
+          branchOperator: "always",
+          branchValue: "",
+          quorumMode: "all",
+          quorumTarget: 1,
+          slaMinutes: 15,
+          escalationAfterMinutes: 20,
+          escalationTargetLabel: "Ops Director",
+        },
+        {
+          stageName: "Finance Vote",
+          requiredRole: "approver",
+          defaultApproverLabel: "Finance Lead",
+          stageMode: "parallel",
+          laneKey: "parallel-a",
+          branchSourceStageOrder: null,
+          branchLabel: "",
+          branchField: "riskLevel",
+          branchOperator: "always",
+          branchValue: "",
+          quorumMode: "majority",
+          quorumTarget: 2,
+          slaMinutes: 15,
+          escalationAfterMinutes: 20,
+          escalationTargetLabel: "Finance Director",
+        },
+        {
+          stageName: "Security Vote",
+          requiredRole: "admin",
+          defaultApproverLabel: "Security Lead",
+          stageMode: "parallel",
+          laneKey: "parallel-b",
+          branchSourceStageOrder: null,
+          branchLabel: "",
+          branchField: "riskLevel",
+          branchOperator: "always",
+          branchValue: "",
+          quorumMode: "majority",
+          quorumTarget: 2,
+          slaMinutes: 15,
+          escalationAfterMinutes: 20,
+          escalationTargetLabel: "CISO",
+        },
+        {
+          stageName: "Compliance Vote",
+          requiredRole: "user",
+          defaultApproverLabel: "Compliance Lead",
+          stageMode: "parallel",
+          laneKey: "parallel-b",
+          branchSourceStageOrder: null,
+          branchLabel: "",
+          branchField: "riskLevel",
+          branchOperator: "always",
+          branchValue: "",
+          quorumMode: "majority",
+          quorumTarget: 2,
+          slaMinutes: 15,
+          escalationAfterMinutes: 20,
+          escalationTargetLabel: "Chief Compliance Officer",
+        },
+        {
+          stageName: "Final Approval",
+          requiredRole: "admin",
+          defaultApproverLabel: "Executive Desk",
+          stageMode: "serial",
+          laneKey: "main",
+          branchSourceStageOrder: null,
+          branchLabel: "",
+          branchField: "riskLevel",
+          branchOperator: "always",
+          branchValue: "",
+          quorumMode: "all",
+          quorumTarget: 1,
+          slaMinutes: 15,
+          escalationAfterMinutes: 20,
+          escalationTargetLabel: "CEO Office",
+        },
+      ],
+    });
+
+    await caller.approvals.assignChain({ approvalId: 2, chainId: created.id });
+    await caller.approvals.resolve({ approvalId: 2, decision: "approved", note: "initial cleared" });
+
+    const afterFirstParallelVote = await caller.approvals.resolve({ approvalId: 2, decision: "approved", note: "finance yes" });
+    expect(afterFirstParallelVote.currentStageOrder).toBe(3);
+    expect(afterFirstParallelVote.stages[2]?.status).toBe("pending");
+    expect(afterFirstParallelVote.stages[3]?.status).toBe("pending");
+    expect(afterFirstParallelVote.stages[4]?.status).toBe("waiting");
+
+    const afterSecondParallelVote = await caller.approvals.resolve({ approvalId: 2, decision: "approved", note: "security yes" });
+    expect(afterSecondParallelVote.currentStageOrder).toBe(5);
+    expect(afterSecondParallelVote.stages[3]?.status).toBe("approved");
+    expect(afterSecondParallelVote.stages[4]?.status).toBe("pending");
+
+    const finalResolution = await caller.approvals.resolve({ approvalId: 2, decision: "approved", note: "final cleared" });
+    expect(finalResolution.status).toBe("approved");
   });
 
   it("creates teams and permissions for Rollen- und Rechteverwaltung", async () => {

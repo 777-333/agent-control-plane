@@ -91,6 +91,7 @@ type ApprovalStatus = "pending" | "approved" | "rejected" | "expired";
 type ApprovalStageStatus = "waiting" | "pending" | "approved" | "rejected" | "escalated";
 type EscalationStatus = "none" | "pending" | "escalated" | "resolved";
 type PolicyEffect = "allowed" | "forbidden" | "approval_required";
+type BranchSignalKey = "riskLevel" | "requestedBy" | "agentName" | "title" | "summary" | "chainName" | "escalationStatus";
 
 type AgentRecord = {
   id: number;
@@ -122,6 +123,8 @@ type PolicyRecord = {
   description: string;
 };
 
+type ParallelQuorumMode = "all" | "majority" | "minimum_count" | "distinct_roles";
+
 type ApprovalStageRecord = {
   id: number;
   order: number;
@@ -133,8 +136,11 @@ type ApprovalStageRecord = {
   laneKey?: string;
   branchSourceStageOrder?: number | null;
   branchLabel?: string;
+  branchField?: BranchSignalKey;
   branchOperator?: "always" | "equals" | "contains" | "greater_than" | "less_than";
   branchValue?: string;
+  quorumMode?: ParallelQuorumMode;
+  quorumTarget?: number;
   startedAt?: number;
   resolvedAt?: number;
   slaMinutes: number;
@@ -154,8 +160,11 @@ type ApprovalChainStageTemplateRecord = {
   laneKey?: string;
   branchSourceStageOrder?: number | null;
   branchLabel?: string;
+  branchField?: BranchSignalKey;
   branchOperator?: "always" | "equals" | "contains" | "greater_than" | "less_than";
   branchValue?: string;
+  quorumMode?: ParallelQuorumMode;
+  quorumTarget?: number;
   slaMinutes: number;
   escalationAfterMinutes: number;
   escalationTargetLabel: string;
@@ -673,8 +682,11 @@ async function ensureApprovalChainSeeded() {
           laneKey: stage.laneKey ?? "main",
           branchSourceStageOrder: stage.branchSourceStageOrder ?? null,
           branchLabel: stage.branchLabel ?? null,
+          branchField: stage.branchField ?? "riskLevel",
           branchOperator: stage.branchOperator ?? "always",
           branchValue: stage.branchValue ?? null,
+          quorumMode: stage.quorumMode ?? "all",
+          quorumTarget: stage.quorumTarget ?? 1,
           slaMinutes: stage.slaMinutes,
           escalationAfterMinutes: stage.escalationAfterMinutes,
           escalationTargetLabel: stage.escalationTargetLabel,
@@ -691,9 +703,23 @@ function getCurrentApprovalStage(approval: ApprovalRecord) {
   return approval.stages.find(stage => stage.order === approval.currentStageOrder && (stage.status === "pending" || stage.status === "escalated"));
 }
 
-function evaluateBranchCondition(stage: ApprovalStageRecord, contextText?: string) {
+function getApprovalBranchSignals(approval: ApprovalRecord) {
+  return {
+    riskLevel: approval.riskLevel,
+    requestedBy: approval.requestedBy,
+    agentName: approval.agentName,
+    title: approval.title,
+    summary: approval.summary,
+    chainName: approval.chainName,
+    escalationStatus: approval.escalationStatus,
+  } satisfies Record<BranchSignalKey, string>;
+}
+
+function evaluateBranchCondition(stage: ApprovalStageRecord, approval: ApprovalRecord) {
   if (stage.stageMode !== "branch") return false;
-  const left = (contextText ?? "").trim().toLowerCase();
+  const signals = getApprovalBranchSignals(approval);
+  const signalKey = stage.branchField ?? "riskLevel";
+  const left = String(signals[signalKey] ?? "").trim().toLowerCase();
   const right = (stage.branchValue ?? "").trim().toLowerCase();
 
   switch (stage.branchOperator ?? "always") {
@@ -728,17 +754,87 @@ function activateStages(stages: ApprovalStageRecord[]) {
   });
 }
 
+function getCurrentParallelGroup(approval: ApprovalRecord) {
+  const orderedStages = [...approval.stages].sort((a, b) => a.order - b.order);
+  const currentIndex = orderedStages.findIndex(stage => stage.order === approval.currentStageOrder);
+  const currentStage = currentIndex >= 0 ? orderedStages[currentIndex] : null;
+  if (!currentStage || currentStage.stageMode !== "parallel") {
+    return [] as ApprovalStageRecord[];
+  }
+
+  let startIndex = currentIndex;
+  while (startIndex > 0 && orderedStages[startIndex - 1]?.stageMode === "parallel") {
+    startIndex -= 1;
+  }
+
+  let endIndex = currentIndex;
+  while (endIndex < orderedStages.length - 1 && orderedStages[endIndex + 1]?.stageMode === "parallel") {
+    endIndex += 1;
+  }
+
+  return orderedStages
+    .slice(startIndex, endIndex + 1)
+    .filter(stage => stage.status !== "waiting" && stage.status !== "rejected")
+    .sort((a, b) => a.order - b.order);
+}
+
+function getParallelQuorumConfig(group: ApprovalStageRecord[]) {
+  const source = group[0];
+  return {
+    quorumMode: source?.quorumMode ?? "all",
+    quorumTarget: Math.max(1, source?.quorumTarget ?? 1),
+  } as const;
+}
+
+function hasParallelGroupReachedQuorum(group: ApprovalStageRecord[]) {
+  if (group.length === 0) {
+    return false;
+  }
+
+  const approved = group.filter(stage => stage.status === "approved");
+  const { quorumMode, quorumTarget } = getParallelQuorumConfig(group);
+
+  switch (quorumMode) {
+    case "majority":
+      return approved.length >= Math.ceil(group.length / 2);
+    case "minimum_count":
+      return approved.length >= Math.min(group.length, quorumTarget);
+    case "distinct_roles": {
+      const distinctRoles = new Set(approved.map(stage => stage.requiredRole));
+      return distinctRoles.size >= Math.min(new Set(group.map(stage => stage.requiredRole)).size, quorumTarget);
+    }
+    case "all":
+    default:
+      return approved.length === group.length;
+  }
+}
+
+function finalizeParallelGroupAfterQuorum(group: ApprovalStageRecord[], approver: string) {
+  const timestamp = Date.now();
+  group.forEach(stage => {
+    if (stage.status === "pending" || stage.status === "escalated") {
+      stage.status = "approved";
+      stage.resolvedAt = timestamp;
+      stage.note = stage.note
+        ? `${stage.note} | Automatisch abgeschlossen, nachdem das Quorum durch ${approver} erreicht wurde.`
+        : `Automatisch abgeschlossen, nachdem das Quorum durch ${approver} erreicht wurde.`;
+    }
+  });
+}
+
 function getNextStagesAfterApproval(approval: ApprovalRecord, approvedStage: ApprovalStageRecord) {
   const remaining = approval.stages
     .filter(stage => stage.status === "waiting")
     .sort((a, b) => a.order - b.order);
 
-  const activeParallelStages = approval.stages.filter(stage => stage.stageMode === "parallel" && (stage.status === "pending" || stage.status === "escalated"));
-  if (approvedStage.stageMode === "parallel" && activeParallelStages.length > 0) {
-    return [] as ApprovalStageRecord[];
+  if (approvedStage.stageMode === "parallel") {
+    const parallelGroup = getCurrentParallelGroup(approval);
+    if (!hasParallelGroupReachedQuorum(parallelGroup)) {
+      return [] as ApprovalStageRecord[];
+    }
   }
 
-  const branchStages = remaining.filter(stage => stage.stageMode === "branch" && stage.branchSourceStageOrder === approvedStage.order && evaluateBranchCondition(stage, approvedStage.note));
+  const branchStages = remaining.filter(stage => stage.stageMode === "branch" && stage.branchSourceStageOrder === approvedStage.order && evaluateBranchCondition(stage, approval));
   if (branchStages.length > 0) {
     return branchStages;
   }
@@ -941,8 +1037,11 @@ export async function listApprovalChains() {
           laneKey: stage.laneKey,
           branchSourceStageOrder: stage.branchSourceStageOrder,
           branchLabel: stage.branchLabel,
+          branchField: stage.branchField,
           branchOperator: stage.branchOperator,
           branchValue: stage.branchValue,
+          quorumMode: stage.quorumMode,
+          quorumTarget: stage.quorumTarget,
           slaMinutes: stage.slaMinutes,
           escalationAfterMinutes: stage.escalationAfterMinutes,
           escalationTargetLabel: stage.escalationTargetLabel,
@@ -963,8 +1062,11 @@ export async function createApprovalChainTemplate(input: {
     laneKey: string;
     branchSourceStageOrder?: number | null;
     branchLabel?: string;
+    branchField?: BranchSignalKey;
     branchOperator: "always" | "equals" | "contains" | "greater_than" | "less_than";
     branchValue?: string;
+    quorumMode?: ParallelQuorumMode;
+    quorumTarget?: number;
     slaMinutes: number;
     escalationAfterMinutes: number;
     escalationTargetLabel: string;
@@ -991,8 +1093,11 @@ export async function createApprovalChainTemplate(input: {
         laneKey: stage.laneKey,
         branchSourceStageOrder: stage.branchSourceStageOrder ?? null,
         branchLabel: stage.branchLabel ?? "",
+        branchField: stage.branchField ?? "riskLevel",
         branchOperator: stage.branchOperator,
         branchValue: stage.branchValue ?? "",
+        quorumMode: stage.quorumMode ?? "all",
+        quorumTarget: stage.quorumTarget ?? 1,
         slaMinutes: stage.slaMinutes,
         escalationAfterMinutes: stage.escalationAfterMinutes,
         escalationTargetLabel: stage.escalationTargetLabel,
@@ -1029,8 +1134,11 @@ export async function createApprovalChainTemplate(input: {
       laneKey: stage.laneKey,
       branchSourceStageOrder: stage.branchSourceStageOrder ?? null,
       branchLabel: stage.branchLabel ?? null,
+      branchField: stage.branchField ?? "riskLevel",
       branchOperator: stage.branchOperator,
       branchValue: stage.branchValue ?? null,
+      quorumMode: stage.quorumMode ?? "all",
+      quorumTarget: stage.quorumTarget ?? 1,
       slaMinutes: stage.slaMinutes,
       escalationAfterMinutes: stage.escalationAfterMinutes,
       escalationTargetLabel: stage.escalationTargetLabel,
@@ -1059,8 +1167,11 @@ export async function updateApprovalChainTemplate(input: {
     laneKey: string;
     branchSourceStageOrder?: number | null;
     branchLabel?: string;
+    branchField?: BranchSignalKey;
     branchOperator: "always" | "equals" | "contains" | "greater_than" | "less_than";
     branchValue?: string;
+    quorumMode?: ParallelQuorumMode;
+    quorumTarget?: number;
     slaMinutes: number;
     escalationAfterMinutes: number;
     escalationTargetLabel: string;
@@ -1091,8 +1202,11 @@ export async function updateApprovalChainTemplate(input: {
         laneKey: stage.laneKey,
         branchSourceStageOrder: stage.branchSourceStageOrder ?? null,
         branchLabel: stage.branchLabel ?? "",
+        branchField: stage.branchField ?? "riskLevel",
         branchOperator: stage.branchOperator,
         branchValue: stage.branchValue ?? "",
+        quorumMode: stage.quorumMode ?? "all",
+        quorumTarget: stage.quorumTarget ?? 1,
         slaMinutes: stage.slaMinutes,
         escalationAfterMinutes: stage.escalationAfterMinutes,
         escalationTargetLabel: stage.escalationTargetLabel,
@@ -1130,8 +1244,11 @@ export async function updateApprovalChainTemplate(input: {
       laneKey: stage.laneKey,
       branchSourceStageOrder: stage.branchSourceStageOrder ?? null,
       branchLabel: stage.branchLabel ?? null,
+      branchField: stage.branchField ?? "riskLevel",
       branchOperator: stage.branchOperator,
       branchValue: stage.branchValue ?? null,
+      quorumMode: stage.quorumMode ?? "all",
+      quorumTarget: stage.quorumTarget ?? 1,
       slaMinutes: stage.slaMinutes,
       escalationAfterMinutes: stage.escalationAfterMinutes,
       escalationTargetLabel: stage.escalationTargetLabel,
@@ -1180,8 +1297,11 @@ export async function applyApprovalChainToApproval(input: { approvalId: number; 
     laneKey: stage.laneKey,
     branchSourceStageOrder: stage.branchSourceStageOrder ?? null,
     branchLabel: stage.branchLabel ?? "",
+    branchField: stage.branchField ?? "riskLevel",
     branchOperator: stage.branchOperator,
     branchValue: stage.branchValue ?? "",
+    quorumMode: stage.quorumMode ?? "all",
+    quorumTarget: stage.quorumTarget ?? 1,
     startedAt: index === 0 ? Date.now() : undefined,
     slaMinutes: stage.slaMinutes,
     escalationAfterMinutes: stage.escalationAfterMinutes,
@@ -1240,9 +1360,14 @@ export async function resolveApprovalStage(input: { approvalId: number; decision
   }
 
   stage.status = "approved";
+  const parallelGroup = stage.stageMode === "parallel" ? getCurrentParallelGroup(approval) : [];
+  const quorumState = parallelGroup.length > 0 ? getParallelQuorumConfig(parallelGroup) : null;
   const nextStages = getNextStagesAfterApproval(approval, stage);
 
   if (nextStages.length > 0) {
+    if (parallelGroup.length > 0 && quorumState && hasParallelGroupReachedQuorum(parallelGroup)) {
+      finalizeParallelGroupAfterQuorum(parallelGroup.filter(item => item.id !== stage.id), input.approver);
+    }
     activateStages(nextStages);
     approval.currentStageOrder = Math.min(...nextStages.map(item => item.order));
     approval.escalationStatus = "pending";
@@ -1275,7 +1400,9 @@ export async function resolveApprovalStage(input: { approvalId: number; decision
         severity: "info",
         category: "Approval Workflow",
         title: "Parallele Freigabestufen laufen weiter",
-        detail: `Nach Freigabe durch ${input.approver} bleiben weitere aktive Parallelpfade für "${approval.title}" offen.`,
+        detail: quorumState
+          ? `Nach Freigabe durch ${input.approver} bleibt das Sammel-Gate für "${approval.title}" offen, bis das Quorum ${quorumState.quorumMode} (${quorumState.quorumTarget}) erreicht ist.`
+          : `Nach Freigabe durch ${input.approver} bleiben weitere aktive Parallelpfade für "${approval.title}" offen.`,
         actorType: "user",
         actorRef: input.approver,
       });

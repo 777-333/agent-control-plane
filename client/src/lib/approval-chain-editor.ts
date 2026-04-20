@@ -1,5 +1,7 @@
 export type ApprovalStageMode = "serial" | "parallel" | "branch";
 export type ApprovalBranchOperator = "always" | "equals" | "contains" | "greater_than" | "less_than";
+export type ApprovalBranchField = "riskLevel" | "requestedBy" | "agentName" | "title" | "summary" | "chainName" | "escalationStatus";
+export type ApprovalQuorumMode = "all" | "majority" | "minimum_count" | "distinct_roles";
 export type ApprovalLaneKey = "main" | "parallel-a" | "parallel-b" | "branch-a" | "branch-b";
 
 export type ApprovalChainStageDraft = {
@@ -10,8 +12,11 @@ export type ApprovalChainStageDraft = {
   laneKey: ApprovalLaneKey;
   branchSourceStageOrder: number | null;
   branchLabel: string;
+  branchField: ApprovalBranchField;
   branchOperator: ApprovalBranchOperator;
   branchValue: string;
+  quorumMode: ApprovalQuorumMode;
+  quorumTarget: number;
   slaMinutes: number;
   escalationAfterMinutes: number;
   escalationTargetLabel: string;
@@ -22,6 +27,7 @@ export type ApprovalDropZone = {
   laneKey: ApprovalLaneKey;
   branchSourceStageOrder?: number | null;
   branchLabel?: string;
+  branchField?: ApprovalBranchField;
 };
 
 export function createEmptyApprovalStageDraft(): ApprovalChainStageDraft {
@@ -33,8 +39,11 @@ export function createEmptyApprovalStageDraft(): ApprovalChainStageDraft {
     laneKey: "main",
     branchSourceStageOrder: null,
     branchLabel: "",
+    branchField: "riskLevel",
     branchOperator: "always",
     branchValue: "",
+    quorumMode: "all",
+    quorumTarget: 1,
     slaMinutes: 60,
     escalationAfterMinutes: 90,
     escalationTargetLabel: "",
@@ -79,8 +88,11 @@ export function moveStageToDropZone(
       laneKey: zone.laneKey,
       branchSourceStageOrder: zone.stageMode === "branch" ? (zone.branchSourceStageOrder ?? null) : null,
       branchLabel: zone.stageMode === "branch" ? (zone.branchLabel ?? stage.branchLabel) : "",
+      branchField: zone.stageMode === "branch" ? (zone.branchField ?? stage.branchField) : "riskLevel",
       branchOperator: zone.stageMode === "branch" ? stage.branchOperator : "always",
       branchValue: zone.stageMode === "branch" ? stage.branchValue : "",
+      quorumMode: zone.stageMode === "parallel" ? stage.quorumMode : "all",
+      quorumTarget: zone.stageMode === "parallel" ? stage.quorumTarget : 1,
     };
   });
 }
@@ -100,4 +112,107 @@ export function getLaneLabel(laneKey: ApprovalLaneKey): string {
     default:
       return laneKey;
   }
+}
+
+export type ApprovalSimulationSignals = Record<ApprovalBranchField, string>;
+
+export type ApprovalSimulationEntry = {
+  order: number;
+  stageName: string;
+  laneKey: ApprovalLaneKey;
+  stageMode: ApprovalStageMode;
+  reachable: boolean;
+  branchMatched: boolean | null;
+  reason: string;
+  quorumLabel: string | null;
+};
+
+export function createDefaultSimulationSignals(): ApprovalSimulationSignals {
+  return {
+    riskLevel: "critical",
+    requestedBy: "Finance Sentinel",
+    agentName: "Finance Sentinel",
+    title: "ERP-Zahlung über 18.400 USD",
+    summary: "Kritische Auszahlung mit ERP- und Finance-Scope.",
+    chainName: "Simulation",
+    escalationStatus: "pending",
+  };
+}
+
+function matchesBranchCondition(stage: ApprovalChainStageDraft, signals: ApprovalSimulationSignals): boolean {
+  const actualValue = `${signals[stage.branchField] ?? ""}`.toLowerCase();
+  const expectedValue = `${stage.branchValue ?? ""}`.toLowerCase();
+
+  switch (stage.branchOperator) {
+    case "always":
+      return true;
+    case "equals":
+      return actualValue === expectedValue;
+    case "contains":
+      return actualValue.includes(expectedValue);
+    case "greater_than":
+      return Number(actualValue) > Number(expectedValue);
+    case "less_than":
+      return Number(actualValue) < Number(expectedValue);
+    default:
+      return false;
+  }
+}
+
+function describeQuorum(stage: ApprovalChainStageDraft): string | null {
+  if (stage.stageMode !== "parallel") {
+    return null;
+  }
+
+  switch (stage.quorumMode) {
+    case "majority":
+      return `Mehrheit (${stage.quorumTarget})`;
+    case "minimum_count":
+      return `Mindestens ${stage.quorumTarget}`;
+    case "distinct_roles":
+      return `Rollen-Quorum (${stage.quorumTarget})`;
+    case "all":
+    default:
+      return "Alle Freigaben";
+  }
+}
+
+export function simulateApprovalChain(
+  stages: ApprovalChainStageDraft[],
+  signals: ApprovalSimulationSignals,
+): ApprovalSimulationEntry[] {
+  let lastNonBranchOrder = 0;
+
+  return stages.map((stage, index) => {
+    const order = index + 1;
+    let reachable = true;
+    let branchMatched: boolean | null = null;
+    let reason = stage.stageMode === "parallel"
+      ? `Aktiv im ${getLaneLabel(stage.laneKey)} mit ${describeQuorum(stage)}`
+      : `Teil des ${getLaneLabel(stage.laneKey)}`;
+
+    if (stage.stageMode === "branch") {
+      const sourceOrder = stage.branchSourceStageOrder ?? lastNonBranchOrder;
+      branchMatched = matchesBranchCondition(stage, signals);
+      reachable = branchMatched;
+      reason = branchMatched
+        ? `Aktiviert über ${stage.branchField} ${stage.branchOperator} ${stage.branchValue || "…"} ab Stufe ${sourceOrder}`
+        : `Übersprungen, weil ${stage.branchField} ${stage.branchOperator} ${stage.branchValue || "…"} nicht erfüllt ist`;
+    }
+
+    if (stage.stageMode !== "branch") {
+      lastNonBranchOrder = order;
+    }
+
+    return {
+      order,
+      stageName: stage.stageName || `Stufe ${order}`,
+      laneKey: stage.laneKey,
+      stageMode: stage.stageMode,
+      reachable,
+      branchMatched,
+      reason,
+      quorumLabel: describeQuorum(stage),
+    };
+  });
 }

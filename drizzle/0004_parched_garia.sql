@@ -1,0 +1,1 @@
+ALTER TABLE `approvalStages` ADD `branchField` enum('riskLevel','requestedBy','agentName','title','summary','chainName','escalationStatus') DEFAULT 'riskLevel' NOT NULL;

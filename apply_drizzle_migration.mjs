@@ -12,10 +12,11 @@ if (!migrationFile) {
 }
 
 const sql = await fs.readFile(new URL(migrationFile, import.meta.url), "utf8");
-const statements = sql
-  .split("--> statement-breakpoint")
+const statements = (sql.includes("--> statement-breakpoint")
+  ? sql.split("--> statement-breakpoint")
+  : sql.split(/;\s*(?:\n|$)/g).map(statement => `${statement.trim()};`))
   .map(statement => statement.trim())
-  .filter(Boolean);
+  .filter(statement => statement && statement !== ";");
 
 const connection = await mysql.createConnection(databaseUrl);
 try {

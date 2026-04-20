@@ -29,3 +29,6 @@
 - [x] Persistente Ausführung von Parallelpfaden und bedingten Verzweigungen im Approval-Workflow implementieren und durch End-to-End-Router-Tests absichern
 - [x] Neue Drizzle-Migration für Parallel-Lanes und Verzweigungsfelder erfolgreich anwenden und den synchronisierten Datenbankzustand dokumentieren
 - [x] Router- und Datenlogik so ergänzen, dass gespeicherte Parallel- und Branching-Konfigurationen auf reale Approval-Vorgänge angewendet und erneut geladen werden können
+- [x] Kontextbasierten Branch-Resolver implementieren, der strukturierte Workflow-Signale statt Freitext für Verzweigungsentscheidungen verwendet
+- [x] Parallele Sammel-Gates mit Quorum-Regeln implementieren, damit Freigaben auf Mehrheits-, Mindest- oder Rollen-Quoren warten können
+- [x] Grafische Simulationsansicht implementieren, die vor dem Speichern den resultierenden Genehmigungspfad vorausschauend visualisiert

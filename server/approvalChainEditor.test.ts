@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  createDefaultSimulationSignals,
   createEmptyApprovalStageDraft,
   moveStageToDropZone,
   reorderApprovalChainStages,
+  simulateApprovalChain,
 } from "../client/src/lib/approval-chain-editor";
 
 describe("approval chain drag-and-drop helpers", () => {
@@ -15,8 +17,11 @@ describe("approval chain drag-and-drop helpers", () => {
       laneKey: "main",
       branchSourceStageOrder: null,
       branchLabel: "",
+      branchField: "riskLevel",
       branchOperator: "always",
       branchValue: "",
+      quorumMode: "all",
+      quorumTarget: 1,
       slaMinutes: 60,
       escalationAfterMinutes: 90,
       escalationTargetLabel: "",
@@ -82,6 +87,7 @@ describe("approval chain drag-and-drop helpers", () => {
       laneKey: "branch-a",
       branchSourceStageOrder: 2,
       branchLabel: "Nur bei ERP-Zahlungen",
+      branchField: "riskLevel",
       branchOperator: "contains",
       branchValue: "ERP",
     });
@@ -94,5 +100,49 @@ describe("approval chain drag-and-drop helpers", () => {
 
     expect(result).toEqual(stages);
     expect(result).not.toBe(stages);
+  });
+
+  it("simulates reachable and skipped stages for the preview panel", () => {
+    const signals = createDefaultSimulationSignals();
+    const stages = [
+      {
+        ...createEmptyApprovalStageDraft(),
+        stageName: "Initial Review",
+      },
+      {
+        ...createEmptyApprovalStageDraft(),
+        stageName: "Parallel Finance",
+        stageMode: "parallel" as const,
+        laneKey: "parallel-a" as const,
+        quorumMode: "majority" as const,
+        quorumTarget: 2,
+      },
+      {
+        ...createEmptyApprovalStageDraft(),
+        stageName: "Executive Branch",
+        stageMode: "branch" as const,
+        laneKey: "branch-a" as const,
+        branchSourceStageOrder: 2,
+        branchField: "riskLevel" as const,
+        branchOperator: "equals" as const,
+        branchValue: "critical",
+      },
+      {
+        ...createEmptyApprovalStageDraft(),
+        stageName: "Skipped Branch",
+        stageMode: "branch" as const,
+        laneKey: "branch-b" as const,
+        branchSourceStageOrder: 2,
+        branchField: "requestedBy" as const,
+        branchOperator: "equals" as const,
+        branchValue: "Unknown",
+      },
+    ];
+
+    const preview = simulateApprovalChain(stages, signals);
+
+    expect(preview[1]).toMatchObject({ reachable: true, quorumLabel: "Mehrheit (2)" });
+    expect(preview[2]).toMatchObject({ reachable: true, branchMatched: true });
+    expect(preview[3]).toMatchObject({ reachable: false, branchMatched: false });
   });
 });

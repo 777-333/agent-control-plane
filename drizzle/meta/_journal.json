@@ -29,6 +29,20 @@
       "when": 1776720979369,
       "tag": "0003_lean_hobgoblin",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1776722487852,
+      "tag": "0004_parched_garia",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1776722863222,
+      "tag": "0005_silly_wallow",
+      "breakpoints": true
     }
   ]
 }
