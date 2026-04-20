@@ -24,3 +24,4 @@
 - [x] Drizzle-Migration auf die laufende Datenbank anwenden und Datenmodell synchronisieren
 - [x] Mehrstufige Genehmigungsketten mit Eskalationsregeln für komplexere Arbeitsabläufe implementieren
 - [x] Persistente Genehmigungsketten-Editoren implementieren, damit Benutzer eigene Freigabemuster erstellen, bearbeiten, speichern und auswählen können
+- [x] Visuellen Genehmigungsketten-Editor mit Drag-and-Drop implementieren, damit Benutzer Freigabestufen intuitiv erstellen, umordnen und speichern können

@@ -1,7 +1,8 @@
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Shield, Activity, BellRing, BrainCircuit, FileSearch, Blocks, UserCog, Fingerprint, ChartNoAxesCombined, Waypoints, Sparkles } from "lucide-react";
+import { createEmptyApprovalStageDraft, reorderApprovalChainStages, type ApprovalChainStageDraft } from "@/lib/approval-chain-editor";
+import { Loader2, Shield, Activity, BellRing, BrainCircuit, FileSearch, Blocks, UserCog, Fingerprint, ChartNoAxesCombined, Waypoints, Sparkles, GripVertical } from "lucide-react";
 import { toast } from "sonner";
 import { useMemo, useState } from "react";
 import {
@@ -616,19 +617,12 @@ export function ApprovalsPage() {
     name: "",
     description: "",
     escalationMode: "serial" as "serial" | "parallel" | "auto_escalate",
-    stages: [
-      {
-        stageName: "",
-        requiredRole: "approver",
-        defaultApproverLabel: "",
-        slaMinutes: 60,
-        escalationAfterMinutes: 90,
-        escalationTargetLabel: "",
-      },
-    ],
+    stages: [createEmptyApprovalStageDraft()],
   });
   const [chainForm, setChainForm] = useState(createEmptyChainForm);
   const [approvalChainSelections, setApprovalChainSelections] = useState<Record<number, number>>({});
+  const [draggedStageIndex, setDraggedStageIndex] = useState<number | null>(null);
+  const [dropStageIndex, setDropStageIndex] = useState<number | null>(null);
 
   const resolveMutation = trpc.approvals.resolve.useMutation({
     onSuccess: async () => {
@@ -685,6 +679,13 @@ export function ApprovalsPage() {
         escalationTargetLabel: stage.escalationTargetLabel,
       })),
     });
+  };
+
+  const updateStage = (stageIndex: number, updater: (stage: ApprovalChainStageDraft) => ApprovalChainStageDraft) => {
+    setChainForm(current => ({
+      ...current,
+      stages: current.stages.map((stage, index) => (index === stageIndex ? updater(stage) : stage)),
+    }));
   };
 
   const saveChain = () => {
@@ -847,11 +848,51 @@ export function ApprovalsPage() {
                 <option value="auto_escalate">auto_escalate</option>
               </select>
 
+              <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/70 px-4 py-3 text-xs leading-6 text-slate-600">
+                Ziehe die Stufen am Handle nach oben oder unten, um die Reihenfolge der Genehmigungskette visuell anzupassen. Die gespeicherte Reihenfolge wird direkt als Freigabepfad verwendet.
+              </div>
+
               <div className="space-y-4">
                 {chainForm.stages.map((stage, index) => (
-                  <div key={`${chainForm.id ?? "new"}-${index}`} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <div
+                    key={`${chainForm.id ?? "new"}-${index}`}
+                    draggable
+                    onDragStart={() => {
+                      setDraggedStageIndex(index);
+                      setDropStageIndex(index);
+                    }}
+                    onDragOver={event => {
+                      event.preventDefault();
+                      setDropStageIndex(index);
+                    }}
+                    onDrop={event => {
+                      event.preventDefault();
+                      if (draggedStageIndex === null) {
+                        return;
+                      }
+                      setChainForm(current => ({
+                        ...current,
+                        stages: reorderApprovalChainStages(current.stages, draggedStageIndex, index),
+                      }));
+                      setDraggedStageIndex(null);
+                      setDropStageIndex(null);
+                    }}
+                    onDragEnd={() => {
+                      setDraggedStageIndex(null);
+                      setDropStageIndex(null);
+                    }}
+                    className={`rounded-2xl border bg-slate-50 p-4 transition ${dropStageIndex === index ? "border-slate-950 ring-2 ring-slate-200" : "border-slate-200"}`}
+                  >
                     <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm font-semibold text-slate-950">Stufe {index + 1}</p>
+                      <div className="flex items-center gap-3">
+                        <div className="cursor-grab rounded-xl border border-slate-200 bg-white p-2 text-slate-500 active:cursor-grabbing">
+                          <GripVertical className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-slate-950">Stufe {index + 1}</p>
+                          <p className="text-xs text-slate-500">Drag-and-drop aktiviert</p>
+                        </div>
+                      </div>
                       {chainForm.stages.length > 1 ? (
                         <button className="text-xs font-medium text-slate-500 transition hover:text-rose-600" onClick={() => setChainForm({ ...chainForm, stages: chainForm.stages.filter((_, currentIndex) => currentIndex !== index) })}>
                           Entfernen
@@ -859,16 +900,16 @@ export function ApprovalsPage() {
                       ) : null}
                     </div>
                     <div className="mt-4 grid gap-3">
-                      <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Stage Name" value={stage.stageName} onChange={e => setChainForm({ ...chainForm, stages: chainForm.stages.map((item, currentIndex) => currentIndex === index ? { ...item, stageName: e.target.value } : item) })} />
+                      <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Stage Name" value={stage.stageName} onChange={e => updateStage(index, item => ({ ...item, stageName: e.target.value }))} />
                       <div className="grid gap-3 md:grid-cols-2">
-                        <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Required Role" value={stage.requiredRole} onChange={e => setChainForm({ ...chainForm, stages: chainForm.stages.map((item, currentIndex) => currentIndex === index ? { ...item, requiredRole: e.target.value } : item) })} />
-                        <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Standard Owner" value={stage.defaultApproverLabel} onChange={e => setChainForm({ ...chainForm, stages: chainForm.stages.map((item, currentIndex) => currentIndex === index ? { ...item, defaultApproverLabel: e.target.value } : item) })} />
+                        <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Required Role" value={stage.requiredRole} onChange={e => updateStage(index, item => ({ ...item, requiredRole: e.target.value }))} />
+                        <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Standard Owner" value={stage.defaultApproverLabel} onChange={e => updateStage(index, item => ({ ...item, defaultApproverLabel: e.target.value }))} />
                       </div>
                       <div className="grid gap-3 md:grid-cols-2">
-                        <input type="number" className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="SLA in Minuten" value={stage.slaMinutes} onChange={e => setChainForm({ ...chainForm, stages: chainForm.stages.map((item, currentIndex) => currentIndex === index ? { ...item, slaMinutes: Number(e.target.value) } : item) })} />
-                        <input type="number" className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Eskalation nach Minuten" value={stage.escalationAfterMinutes} onChange={e => setChainForm({ ...chainForm, stages: chainForm.stages.map((item, currentIndex) => currentIndex === index ? { ...item, escalationAfterMinutes: Number(e.target.value) } : item) })} />
+                        <input type="number" className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="SLA in Minuten" value={stage.slaMinutes} onChange={e => updateStage(index, item => ({ ...item, slaMinutes: Number(e.target.value) }))} />
+                        <input type="number" className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Eskalation nach Minuten" value={stage.escalationAfterMinutes} onChange={e => updateStage(index, item => ({ ...item, escalationAfterMinutes: Number(e.target.value) }))} />
                       </div>
-                      <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Eskalationsziel" value={stage.escalationTargetLabel} onChange={e => setChainForm({ ...chainForm, stages: chainForm.stages.map((item, currentIndex) => currentIndex === index ? { ...item, escalationTargetLabel: e.target.value } : item) })} />
+                      <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Eskalationsziel" value={stage.escalationTargetLabel} onChange={e => updateStage(index, item => ({ ...item, escalationTargetLabel: e.target.value }))} />
                     </div>
                   </div>
                 ))}
@@ -877,17 +918,7 @@ export function ApprovalsPage() {
               <div className="flex flex-wrap gap-3">
                 <Button variant="outline" className="rounded-xl border-slate-300" onClick={() => setChainForm({
                   ...chainForm,
-                  stages: [
-                    ...chainForm.stages,
-                    {
-                      stageName: "",
-                      requiredRole: "approver",
-                      defaultApproverLabel: "",
-                      slaMinutes: 60,
-                      escalationAfterMinutes: 90,
-                      escalationTargetLabel: "",
-                    },
-                  ],
+                  stages: [...chainForm.stages, createEmptyApprovalStageDraft()],
                 })}>Stufe hinzufügen</Button>
                 <Button className="rounded-xl bg-slate-950 text-white hover:bg-slate-900" disabled={createChainMutation.isPending || updateChainMutation.isPending} onClick={saveChain}>{chainForm.id ? "Kette aktualisieren" : "Kette speichern"}</Button>
               </div>
