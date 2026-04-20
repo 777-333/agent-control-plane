@@ -22,3 +22,4 @@
 - [x] Runtime Guardrails mit echter Prüf- und Stopplogik bei Policy- oder Kostenschwellen erweitern
 - [x] Observability & Cost Monitoring mit regelmäßig aktualisierten Metrikflüssen statt rein statischen Snapshots erweitern
 - [x] Drizzle-Migration auf die laufende Datenbank anwenden und Datenmodell synchronisieren
+- [x] Mehrstufige Genehmigungsketten mit Eskalationsregeln für komplexere Arbeitsabläufe implementieren

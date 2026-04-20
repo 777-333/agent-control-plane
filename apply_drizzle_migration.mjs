@@ -6,7 +6,12 @@ if (!databaseUrl) {
   throw new Error("DATABASE_URL is not set");
 }
 
-const sql = await fs.readFile(new URL("./drizzle/0001_premium_shaman.sql", import.meta.url), "utf8");
+const migrationFile = process.argv[2];
+if (!migrationFile) {
+  throw new Error("Pass the migration file path as the first argument");
+}
+
+const sql = await fs.readFile(new URL(migrationFile, import.meta.url), "utf8");
 const statements = sql
   .split("--> statement-breakpoint")
   .map(statement => statement.trim())
@@ -17,7 +22,7 @@ try {
   for (const statement of statements) {
     await connection.query(statement);
   }
-  console.log(`Applied ${statements.length} SQL statements.`);
+  console.log(`Applied ${statements.length} SQL statements from ${migrationFile}.`);
 } finally {
   await connection.end();
 }

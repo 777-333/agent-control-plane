@@ -120,10 +120,35 @@ export const agentActions = mysqlTable("agentActions", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
+export const approvalChains = mysqlTable("approvalChains", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 160 }).notNull(),
+  description: text("description"),
+  escalationMode: mysqlEnum("escalationMode", ["serial", "parallel", "auto_escalate"]).default("serial").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const approvalStages = mysqlTable("approvalStages", {
+  id: int("id").autoincrement().primaryKey(),
+  chainId: int("chainId").notNull(),
+  stageOrder: int("stageOrder").notNull(),
+  stageName: varchar("stageName", { length: 140 }).notNull(),
+  requiredRole: varchar("requiredRole", { length: 100 }).notNull(),
+  defaultApproverLabel: varchar("defaultApproverLabel", { length: 160 }).notNull(),
+  slaMinutes: int("slaMinutes").default(60).notNull(),
+  escalationAfterMinutes: int("escalationAfterMinutes").default(120).notNull(),
+  escalationTargetLabel: varchar("escalationTargetLabel", { length: 160 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
 export const approvals = mysqlTable("approvals", {
   id: int("id").autoincrement().primaryKey(),
   agentId: int("agentId").notNull(),
   actionId: int("actionId").notNull(),
+  chainId: int("chainId"),
+  currentStageOrder: int("currentStageOrder").default(1).notNull(),
+  escalationStatus: mysqlEnum("escalationStatus", ["none", "pending", "escalated", "resolved"]).default("none").notNull(),
   status: mysqlEnum("status", ["pending", "approved", "rejected", "expired"]).default("pending").notNull(),
   requestedByUserId: int("requestedByUserId"),
   approverUserId: int("approverUserId"),
@@ -193,6 +218,8 @@ export type InsertUser = typeof users.$inferInsert;
 export type Team = typeof teams.$inferSelect;
 export type Agent = typeof agents.$inferSelect;
 export type Policy = typeof policies.$inferSelect;
+export type ApprovalChain = typeof approvalChains.$inferSelect;
+export type ApprovalStage = typeof approvalStages.$inferSelect;
 export type Approval = typeof approvals.$inferSelect;
 export type AuditEvent = typeof auditEvents.$inferSelect;
 export type Connector = typeof connectors.$inferSelect;

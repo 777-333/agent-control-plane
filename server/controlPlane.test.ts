@@ -60,24 +60,41 @@ describe("control plane router", () => {
     expect(agents.some(agent => agent.name === "Compliance Sentinel")).toBe(true);
   });
 
-  it("resolves a pending approval and exposes the result in subsequent reads", async () => {
+  it("advances a multistage approval to the next stage instead of closing the workflow immediately", async () => {
     const caller = appRouter.createCaller(createAuthContext());
     const approvalsBefore = await caller.approvals.list();
-    const pending = approvalsBefore.find(item => item.status === "pending");
+    const multistage = approvalsBefore.find(item => item.id === 2);
 
-    expect(pending).toBeDefined();
+    expect(multistage).toBeDefined();
+    expect(multistage?.currentStageOrder).toBe(1);
 
     const resolved = await caller.approvals.resolve({
-      approvalId: pending!.id,
+      approvalId: 2,
       decision: "approved",
+      note: "Lead approval completed.",
     });
 
-    expect(resolved.status).toBe("approved");
-    expect(resolved.approver).toBe("Sample User");
+    expect(resolved.status).toBe("pending");
+    expect(resolved.currentStageOrder).toBe(2);
+    expect(resolved.stages[0]?.status).toBe("approved");
+    expect(resolved.stages[1]?.status).toBe("pending");
 
     const approvalsAfter = await caller.approvals.list();
-    const updated = approvalsAfter.find(item => item.id === pending!.id);
-    expect(updated?.status).toBe("approved");
+    const updated = approvalsAfter.find(item => item.id === 2);
+    expect(updated?.currentStageOrder).toBe(2);
+  });
+
+  it("escalates the current approval stage to the configured fallback owner", async () => {
+    const caller = appRouter.createCaller(createAuthContext());
+
+    const escalated = await caller.approvals.escalate({
+      approvalId: 1,
+      reason: "SLA überschritten – Eskalation an Executive Risk Committee.",
+    });
+
+    expect(escalated.escalationStatus).toBe("escalated");
+    expect(escalated.stages[1]?.status).toBe("escalated");
+    expect(escalated.stages[1]?.ownerLabel).toBe("Executive Risk Committee");
   });
 
   it("creates teams and permissions for Rollen- und Rechteverwaltung", async () => {

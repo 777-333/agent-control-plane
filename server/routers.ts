@@ -21,7 +21,8 @@ import {
   listGuardrailEvents,
   listMetricSnapshots,
   listPolicies,
-  resolveApproval,
+  resolveApprovalStage,
+  escalateApproval,
 } from "./db";
 import { notifyOwner } from "./_core/notification";
 
@@ -104,15 +105,36 @@ export const appRouter = router({
         z.object({
           approvalId: z.number().int(),
           decision: z.enum(["approved", "rejected"]),
+          note: z.string().max(500).optional(),
         }),
       )
       .mutation(async ({ ctx, input }) =>
-        resolveApproval({
+        resolveApprovalStage({
           approvalId: input.approvalId,
           decision: input.decision,
           approver: ctx.user.name || ctx.user.email || "Current User",
+          note: input.note,
         }),
       ),
+    escalate: protectedProcedure
+      .input(
+        z.object({
+          approvalId: z.number().int(),
+          reason: z.string().min(4),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const escalated = await escalateApproval({
+          approvalId: input.approvalId,
+          reason: input.reason,
+          triggeredBy: ctx.user.name || ctx.user.email || "Current User",
+        });
+        await notifyOwner({
+          title: `Approval Escalation: ${escalated.title}`,
+          content: `Die aktuelle Freigabestufe wurde eskaliert. Neuer Owner: ${escalated.stages.find(stage => stage.order === escalated.currentStageOrder)?.ownerLabel ?? "unbekannt"}. Grund: ${input.reason}`,
+        });
+        return escalated;
+      }),
     notify: protectedProcedure
       .input(
         z.object({

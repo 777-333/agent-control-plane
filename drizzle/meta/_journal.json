@@ -15,6 +15,13 @@
       "when": 1776717531095,
       "tag": "0001_premium_shaman",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1776719105877,
+      "tag": "0002_amused_klaw",
+      "breakpoints": true
     }
   ]
 }

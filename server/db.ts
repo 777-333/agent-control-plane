@@ -88,6 +88,8 @@ export async function getUserByOpenId(openId: string) {
 type AgentStatus = "healthy" | "warning" | "paused" | "offline";
 type RiskLevel = "low" | "medium" | "high" | "critical";
 type ApprovalStatus = "pending" | "approved" | "rejected" | "expired";
+type ApprovalStageStatus = "waiting" | "pending" | "approved" | "rejected" | "escalated";
+type EscalationStatus = "none" | "pending" | "escalated" | "resolved";
 type PolicyEffect = "allowed" | "forbidden" | "approval_required";
 
 type AgentRecord = {
@@ -120,6 +122,22 @@ type PolicyRecord = {
   description: string;
 };
 
+type ApprovalStageRecord = {
+  id: number;
+  order: number;
+  name: string;
+  requiredRole: string;
+  ownerLabel: string;
+  status: ApprovalStageStatus;
+  startedAt?: number;
+  resolvedAt?: number;
+  slaMinutes: number;
+  escalationAfterMinutes: number;
+  escalationTarget: string;
+  escalationTriggeredAt?: number;
+  note?: string;
+};
+
 type ApprovalRecord = {
   id: number;
   agentId: number;
@@ -132,6 +150,11 @@ type ApprovalRecord = {
   requestedAt: number;
   requestedBy: string;
   approver?: string;
+  chainId: number;
+  chainName: string;
+  escalationStatus: EscalationStatus;
+  currentStageOrder: number;
+  stages: ApprovalStageRecord[];
 };
 
 type AuditEventRecord = {
@@ -315,11 +338,54 @@ const approvalsData: ApprovalRecord[] = [
     actionId: 8101,
     agentName: "Finance Sentinel",
     title: "ERP-Zahlung über 18.400 USD",
-    summary: "Auszahlung an priorisierten Infrastruktur-Lieferanten wurde wegen Kosten- und Risikoprofil zur Freigabe angehalten.",
+    summary: "Auszahlung an priorisierten Infrastruktur-Lieferanten wurde wegen Kosten- und Risikoprofil zur mehrstufigen Freigabe angehalten.",
     status: "pending",
     riskLevel: "critical",
-    requestedAt: now - 1000 * 60 * 18,
+    requestedAt: now - 1000 * 60 * 120,
     requestedBy: "Finance Sentinel",
+    chainId: 1,
+    chainName: "Finance critical disbursement chain",
+    escalationStatus: "pending",
+    currentStageOrder: 2,
+    stages: [
+      {
+        id: 101,
+        order: 1,
+        name: "Finance Ops Review",
+        requiredRole: "approver",
+        ownerLabel: "Finance Operations",
+        status: "approved",
+        startedAt: now - 1000 * 60 * 118,
+        resolvedAt: now - 1000 * 60 * 92,
+        slaMinutes: 30,
+        escalationAfterMinutes: 45,
+        escalationTarget: "Head of Finance Operations",
+        note: "Budget und Lieferantendaten geprüft.",
+      },
+      {
+        id: 102,
+        order: 2,
+        name: "CFO Approval",
+        requiredRole: "admin",
+        ownerLabel: "CFO Office",
+        status: "pending",
+        startedAt: now - 1000 * 60 * 76,
+        slaMinutes: 45,
+        escalationAfterMinutes: 60,
+        escalationTarget: "Executive Risk Committee",
+      },
+      {
+        id: 103,
+        order: 3,
+        name: "Legal Confirmation",
+        requiredRole: "approver",
+        ownerLabel: "Legal Counsel",
+        status: "waiting",
+        slaMinutes: 60,
+        escalationAfterMinutes: 90,
+        escalationTarget: "General Counsel",
+      },
+    ],
   },
   {
     id: 2,
@@ -327,11 +393,40 @@ const approvalsData: ApprovalRecord[] = [
     actionId: 8102,
     agentName: "Support Orchestrator",
     title: "Kulanzgutschrift für Enterprise-Kunde",
-    summary: "Support-Agent hat eine Gutschrift oberhalb der freigegebenen Kulanzgrenze vorgeschlagen.",
+    summary: "Support-Agent hat eine Gutschrift oberhalb der freigegebenen Kulanzgrenze vorgeschlagen und an eine zweistufige Freigabekette übergeben.",
     status: "pending",
     riskLevel: "high",
     requestedAt: now - 1000 * 60 * 46,
     requestedBy: "Support Orchestrator",
+    chainId: 2,
+    chainName: "Customer credit escalation chain",
+    escalationStatus: "none",
+    currentStageOrder: 1,
+    stages: [
+      {
+        id: 201,
+        order: 1,
+        name: "CS Lead Approval",
+        requiredRole: "approver",
+        ownerLabel: "Customer Success Lead",
+        status: "pending",
+        startedAt: now - 1000 * 60 * 46,
+        slaMinutes: 60,
+        escalationAfterMinutes: 90,
+        escalationTarget: "VP Customer Success",
+      },
+      {
+        id: 202,
+        order: 2,
+        name: "Finance Threshold Review",
+        requiredRole: "approver",
+        ownerLabel: "Finance Business Partner",
+        status: "waiting",
+        slaMinutes: 45,
+        escalationAfterMinutes: 90,
+        escalationTarget: "Head of Revenue Operations",
+      },
+    ],
   },
   {
     id: 3,
@@ -339,12 +434,44 @@ const approvalsData: ApprovalRecord[] = [
     actionId: 8077,
     agentName: "Finance Sentinel",
     title: "Lieferantenänderung im ERP",
-    summary: "Kritische Stammdatenänderung wurde nach Vier-Augen-Prüfung freigegeben.",
+    summary: "Kritische Stammdatenänderung wurde nach Vier-Augen-Prüfung und Abschluss der Freigabekette genehmigt.",
     status: "approved",
     riskLevel: "high",
     requestedAt: now - 1000 * 60 * 190,
     requestedBy: "Finance Sentinel",
     approver: "Sophie Keller",
+    chainId: 1,
+    chainName: "Finance critical disbursement chain",
+    escalationStatus: "resolved",
+    currentStageOrder: 2,
+    stages: [
+      {
+        id: 301,
+        order: 1,
+        name: "Finance Ops Review",
+        requiredRole: "approver",
+        ownerLabel: "Finance Operations",
+        status: "approved",
+        startedAt: now - 1000 * 60 * 188,
+        resolvedAt: now - 1000 * 60 * 178,
+        slaMinutes: 30,
+        escalationAfterMinutes: 45,
+        escalationTarget: "Head of Finance Operations",
+      },
+      {
+        id: 302,
+        order: 2,
+        name: "CFO Approval",
+        requiredRole: "admin",
+        ownerLabel: "CFO Office",
+        status: "approved",
+        startedAt: now - 1000 * 60 * 178,
+        resolvedAt: now - 1000 * 60 * 166,
+        slaMinutes: 45,
+        escalationAfterMinutes: 60,
+        escalationTarget: "Executive Risk Committee",
+      },
+    ],
   },
 ];
 
@@ -438,6 +565,48 @@ const permissionsData: PermissionRecord[] = [
   { id: 4, subject: "Strategy Office", subjectType: "team", agentName: "Research Navigator", permissionLevel: "operator", toolScope: "Browser, Datenbank" },
 ];
 
+function getCurrentApprovalStage(approval: ApprovalRecord) {
+  return approval.stages.find(stage => stage.order === approval.currentStageOrder);
+}
+
+function addAuditEvent(event: Omit<AuditEventRecord, "id" | "createdAt"> & { createdAt?: number }) {
+  auditEventsData.unshift({
+    id: auditEventsData.length + 1,
+    createdAt: event.createdAt ?? Date.now(),
+    ...event,
+  });
+}
+
+function synchronizeApprovalEscalations() {
+  const currentTime = Date.now();
+  approvalsData.forEach(approval => {
+    if (approval.status !== "pending") return;
+    const stage = getCurrentApprovalStage(approval);
+    if (!stage) return;
+    if (stage.status !== "pending") return;
+    if (!stage.startedAt) return;
+    const elapsedMinutes = (currentTime - stage.startedAt) / 60000;
+    if (elapsedMinutes < stage.escalationAfterMinutes) return;
+
+    stage.status = "escalated";
+    stage.ownerLabel = stage.escalationTarget;
+    stage.escalationTriggeredAt = currentTime;
+    stage.note = `Automatisch eskaliert nach ${stage.escalationAfterMinutes} Minuten.`;
+    approval.escalationStatus = "escalated";
+
+    addAuditEvent({
+      agentId: approval.agentId,
+      agentName: approval.agentName,
+      severity: "warning",
+      category: "Approval Workflow",
+      title: "Approval-Stufe eskaliert",
+      detail: `Die Stufe \"${stage.name}\" für \"${approval.title}\" wurde an ${stage.ownerLabel} eskaliert.`,
+      actorType: "system",
+      actorRef: "approval-escalation-engine",
+    });
+  });
+}
+
 function refreshLiveMetrics() {
   const tick = Math.floor(Date.now() / 15000);
   metricsData.forEach((metric, index) => {
@@ -451,6 +620,7 @@ function refreshLiveMetrics() {
 }
 
 export async function getDashboardOverview() {
+  synchronizeApprovalEscalations();
   refreshLiveMetrics();
   const activeAgents = agentsData.filter(agent => agent.status !== "offline").length;
   const pendingApprovals = approvalsData.filter(approval => approval.status === "pending").length;
@@ -551,32 +721,120 @@ export async function createPolicy(input: {
 }
 
 export async function listApprovals() {
+  synchronizeApprovalEscalations();
   return [...approvalsData].sort((a, b) => b.requestedAt - a.requestedAt);
 }
 
-export async function resolveApproval(input: { approvalId: number; decision: "approved" | "rejected"; approver: string }) {
+export async function resolveApprovalStage(input: { approvalId: number; decision: "approved" | "rejected"; approver: string; note?: string }) {
   const approval = approvalsData.find(item => item.id === input.approvalId);
   if (!approval) {
     throw new Error("Approval not found");
   }
-  approval.status = input.decision;
-  approval.approver = input.approver;
+  if (approval.status !== "pending") {
+    throw new Error("Approval is already completed");
+  }
 
-  auditEventsData.unshift({
-    id: auditEventsData.length + 1,
+  const stage = getCurrentApprovalStage(approval);
+  if (!stage || (stage.status !== "pending" && stage.status !== "escalated")) {
+    throw new Error("No actionable approval stage found");
+  }
+
+  stage.note = input.note;
+  stage.resolvedAt = Date.now();
+
+  if (input.decision === "rejected") {
+    stage.status = "rejected";
+    approval.status = "rejected";
+    approval.approver = input.approver;
+    approval.escalationStatus = "resolved";
+
+    addAuditEvent({
+      agentId: approval.agentId,
+      agentName: approval.agentName,
+      severity: "warning",
+      category: "Approval Workflow",
+      title: "Freigabekette abgelehnt",
+      detail: `Die Stufe \"${stage.name}\" für \"${approval.title}\" wurde durch ${input.approver} abgelehnt.`,
+      actorType: "user",
+      actorRef: input.approver,
+    });
+
+    return approval;
+  }
+
+  stage.status = "approved";
+  const nextStage = approval.stages.find(item => item.order === stage.order + 1);
+
+  if (nextStage) {
+    nextStage.status = "pending";
+    nextStage.startedAt = Date.now();
+    approval.currentStageOrder = nextStage.order;
+    approval.escalationStatus = "pending";
+
+    addAuditEvent({
+      agentId: approval.agentId,
+      agentName: approval.agentName,
+      severity: "info",
+      category: "Approval Workflow",
+      title: "Nächste Freigabestufe aktiviert",
+      detail: `Nach Freigabe durch ${input.approver} wurde die Stufe \"${nextStage.name}\" für \"${approval.title}\" aktiviert.`,
+      actorType: "user",
+      actorRef: input.approver,
+    });
+  } else {
+    approval.status = "approved";
+    approval.approver = input.approver;
+    approval.escalationStatus = "resolved";
+
+    addAuditEvent({
+      agentId: approval.agentId,
+      agentName: approval.agentName,
+      severity: "info",
+      category: "Approval Workflow",
+      title: "Freigabekette abgeschlossen",
+      detail: `Die Aktion \"${approval.title}\" wurde nach Abschluss aller Stufen durch ${input.approver} vollständig freigegeben.`,
+      actorType: "user",
+      actorRef: input.approver,
+    });
+  }
+
+  return approval;
+}
+
+export async function escalateApproval(input: { approvalId: number; triggeredBy: string; reason: string }) {
+  const approval = approvalsData.find(item => item.id === input.approvalId);
+  if (!approval) {
+    throw new Error("Approval not found");
+  }
+  if (approval.status !== "pending") {
+    throw new Error("Approval is already completed");
+  }
+
+  const stage = getCurrentApprovalStage(approval);
+  if (!stage || (stage.status !== "pending" && stage.status !== "escalated")) {
+    throw new Error("No actionable approval stage found");
+  }
+
+  stage.status = "escalated";
+  stage.ownerLabel = stage.escalationTarget;
+  stage.escalationTriggeredAt = Date.now();
+  stage.note = input.reason;
+  approval.escalationStatus = "escalated";
+
+  addAuditEvent({
     agentId: approval.agentId,
     agentName: approval.agentName,
-    severity: input.decision === "approved" ? "info" : "warning",
+    severity: "warning",
     category: "Approval Workflow",
-    title: input.decision === "approved" ? "Freigabe erteilt" : "Freigabe abgelehnt",
-    detail: `Die Aktion \"${approval.title}\" wurde durch ${input.approver} ${input.decision === "approved" ? "freigegeben" : "abgelehnt"}.`,
+    title: "Freigabestufe manuell eskaliert",
+    detail: `Die Stufe \"${stage.name}\" für \"${approval.title}\" wurde durch ${input.triggeredBy} an ${stage.ownerLabel} eskaliert.`,
     actorType: "user",
-    actorRef: input.approver,
-    createdAt: Date.now(),
+    actorRef: input.triggeredBy,
   });
 
   return approval;
 }
+
 
 export async function listAuditEvents() {
   return [...auditEventsData].sort((a, b) => b.createdAt - a.createdAt);
@@ -649,8 +907,7 @@ export async function createEvaluationRun(input: { agentId: number; name: string
   };
 
   evaluationsData.unshift(evaluation);
-  auditEventsData.unshift({
-    id: auditEventsData.length + 1,
+  addAuditEvent({
     agentId: agent.id,
     agentName: agent.name,
     severity: "info",
@@ -659,7 +916,6 @@ export async function createEvaluationRun(input: { agentId: number; name: string
     detail: `Die Testsuite \"${input.name}\" wurde für ${agent.name} ausgeführt.`,
     actorType: "user",
     actorRef: "evaluation-console",
-    createdAt: Date.now(),
   });
 
   return evaluation;
@@ -684,8 +940,7 @@ export async function createGuardrailEvent(input: { agentId: number; triggerType
 
   guardrailsData.unshift(event);
   agent.status = "paused";
-  auditEventsData.unshift({
-    id: auditEventsData.length + 1,
+  addAuditEvent({
     agentId: agent.id,
     agentName: agent.name,
     severity: "critical",
@@ -694,7 +949,6 @@ export async function createGuardrailEvent(input: { agentId: number; triggerType
     detail: `${agent.name} wurde aufgrund des Triggers ${input.triggerType} automatisch pausiert.`,
     actorType: "system",
     actorRef: "guardrail-engine",
-    createdAt: Date.now(),
   });
 
   return event;

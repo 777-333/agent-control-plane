@@ -613,7 +613,13 @@ export function ApprovalsPage() {
   const { data, isLoading, error } = useSnapshot();
   const resolveMutation = trpc.approvals.resolve.useMutation({
     onSuccess: async () => {
-      toast.success("Freigabeentscheidung gespeichert");
+      toast.success("Freigabestufe aktualisiert");
+      await utils.controlPlane.snapshot.invalidate();
+    },
+  });
+  const escalateMutation = trpc.approvals.escalate.useMutation({
+    onSuccess: async () => {
+      toast.success("Stufe eskaliert");
       await utils.controlPlane.snapshot.invalidate();
     },
   });
@@ -627,36 +633,63 @@ export function ApprovalsPage() {
 
   return (
     <div className="space-y-6">
-      <SectionHeader eyebrow="Human-in-the-loop" title="Approval Workflow" description="Kritische Agentenaktionen werden mit Benachrichtigung, Kontext und klaren Entscheidungsoptionen zur menschlichen Freigabe gestellt." />
+      <SectionHeader eyebrow="Human-in-the-loop" title="Approval Workflow" description="Kritische Agentenaktionen werden mit Benachrichtigung, mehrstufigen Genehmigungsketten und Eskalationsregeln zur menschlichen Freigabe geführt." />
       <Surface className="p-6">
         <div className="grid gap-4">
-          {data.approvals.map(item => (
-            <div key={item.id} className="rounded-[24px] border border-slate-200/80 bg-white px-5 py-5 shadow-sm">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <div className="flex items-center gap-3">
-                    <h3 className="text-base font-semibold text-slate-950">{item.title}</h3>
-                    <ModuleBadge label={item.status} tone={item.status === "pending" ? "warning" : item.status === "approved" ? "success" : "danger"} />
+          {data.approvals.map(item => {
+            const currentStage = item.stages.find(stage => stage.order === item.currentStageOrder);
+            const isActionable = item.status === "pending" && currentStage && (currentStage.status === "pending" || currentStage.status === "escalated");
+
+            return (
+              <div key={item.id} className="rounded-[24px] border border-slate-200/80 bg-white px-5 py-5 shadow-sm">
+                <div className="flex flex-col gap-5">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <h3 className="text-base font-semibold text-slate-950">{item.title}</h3>
+                        <ModuleBadge label={item.status} tone={item.status === "pending" ? "warning" : item.status === "approved" ? "success" : "danger"} />
+                        <ModuleBadge label={item.chainName} />
+                        <ModuleBadge label={`Escalation ${item.escalationStatus}`} tone={item.escalationStatus === "escalated" ? "warning" : item.escalationStatus === "resolved" ? "success" : "neutral"} />
+                      </div>
+                      <p className="mt-2 text-sm leading-6 text-slate-600">{item.summary}</p>
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <ModuleBadge label={item.agentName} />
+                        <ModuleBadge label={`Requested by ${item.requestedBy}`} />
+                        <ModuleBadge label={timeAgo(item.requestedAt)} />
+                      </div>
+                    </div>
+                    {isActionable ? (
+                      <div className="flex flex-wrap gap-2">
+                        <Button className="rounded-xl bg-slate-950 text-white hover:bg-slate-900" disabled={resolveMutation.isPending} onClick={() => resolveMutation.mutate({ approvalId: item.id, decision: "approved", note: `Stufe ${currentStage.name} bestätigt.` })}>Approve stage</Button>
+                        <Button variant="outline" className="rounded-xl border-slate-300" disabled={resolveMutation.isPending} onClick={() => resolveMutation.mutate({ approvalId: item.id, decision: "rejected", note: `Stufe ${currentStage.name} abgelehnt.` })}>Reject workflow</Button>
+                        <Button variant="outline" className="rounded-xl border-slate-300" disabled={escalateMutation.isPending} onClick={() => escalateMutation.mutate({ approvalId: item.id, reason: `Manuelle Eskalation für ${currentStage.name}.` })}>Escalate</Button>
+                        <Button variant="outline" className="rounded-xl border-slate-300" disabled={notifyMutation.isPending} onClick={() => notifyMutation.mutate({ approvalTitle: `${item.title} · ${currentStage.name}`, severity: item.riskLevel })}>Notify</Button>
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">Approver: {item.approver || currentStage?.ownerLabel || "–"}</div>
+                    )}
                   </div>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">{item.summary}</p>
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <ModuleBadge label={item.agentName} />
-                    <ModuleBadge label={`Requested by ${item.requestedBy}`} />
-                    <ModuleBadge label={timeAgo(item.requestedAt)} />
+                  <div className="grid gap-3 xl:grid-cols-3">
+                    {item.stages.map(stage => (
+                      <div key={stage.id} className={`rounded-2xl border px-4 py-4 ${stage.order === item.currentStageOrder && item.status === "pending" ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200 bg-slate-50 text-slate-900"}`}>
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-sm font-semibold">{stage.order}. {stage.name}</p>
+                          <ModuleBadge label={stage.status} tone={stage.status === "approved" ? "success" : stage.status === "rejected" ? "danger" : stage.status === "escalated" ? "warning" : "neutral"} />
+                        </div>
+                        <div className={`mt-3 space-y-2 text-sm ${stage.order === item.currentStageOrder && item.status === "pending" ? "text-slate-200" : "text-slate-600"}`}>
+                          <p>Owner: {stage.ownerLabel}</p>
+                          <p>Role: {stage.requiredRole}</p>
+                          <p>SLA: {stage.slaMinutes} Min · Escalation: {stage.escalationAfterMinutes} Min</p>
+                          <p>Target: {stage.escalationTarget}</p>
+                          {stage.note ? <p>Note: {stage.note}</p> : null}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
-                {item.status === "pending" ? (
-                  <div className="flex flex-wrap gap-2">
-                    <Button className="rounded-xl bg-slate-950 text-white hover:bg-slate-900" disabled={resolveMutation.isPending} onClick={() => resolveMutation.mutate({ approvalId: item.id, decision: "approved" })}>Approve</Button>
-                    <Button variant="outline" className="rounded-xl border-slate-300" disabled={resolveMutation.isPending} onClick={() => resolveMutation.mutate({ approvalId: item.id, decision: "rejected" })}>Reject</Button>
-                    <Button variant="outline" className="rounded-xl border-slate-300" disabled={notifyMutation.isPending} onClick={() => notifyMutation.mutate({ approvalTitle: item.title, severity: item.riskLevel })}>Notify</Button>
-                  </div>
-                ) : (
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">Approver: {item.approver || "–"}</div>
-                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </Surface>
     </div>
