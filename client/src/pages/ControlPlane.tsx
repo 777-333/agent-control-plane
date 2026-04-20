@@ -611,6 +611,25 @@ export function AccessPage() {
 export function ApprovalsPage() {
   const utils = trpc.useUtils();
   const { data, isLoading, error } = useSnapshot();
+  const createEmptyChainForm = () => ({
+    id: null as number | null,
+    name: "",
+    description: "",
+    escalationMode: "serial" as "serial" | "parallel" | "auto_escalate",
+    stages: [
+      {
+        stageName: "",
+        requiredRole: "approver",
+        defaultApproverLabel: "",
+        slaMinutes: 60,
+        escalationAfterMinutes: 90,
+        escalationTargetLabel: "",
+      },
+    ],
+  });
+  const [chainForm, setChainForm] = useState(createEmptyChainForm);
+  const [approvalChainSelections, setApprovalChainSelections] = useState<Record<number, number>>({});
+
   const resolveMutation = trpc.approvals.resolve.useMutation({
     onSuccess: async () => {
       toast.success("Freigabestufe aktualisiert");
@@ -628,70 +647,254 @@ export function ApprovalsPage() {
       toast.success(result.delivered ? "Benachrichtigung ausgelöst" : "Benachrichtigung konnte nicht zugestellt werden");
     },
   });
+  const createChainMutation = trpc.approvals.createChain.useMutation({
+    onSuccess: async () => {
+      toast.success("Genehmigungskette gespeichert");
+      setChainForm(createEmptyChainForm());
+      await utils.controlPlane.snapshot.invalidate();
+    },
+  });
+  const updateChainMutation = trpc.approvals.updateChain.useMutation({
+    onSuccess: async () => {
+      toast.success("Genehmigungskette aktualisiert");
+      await utils.controlPlane.snapshot.invalidate();
+    },
+  });
+  const assignChainMutation = trpc.approvals.assignChain.useMutation({
+    onSuccess: async () => {
+      toast.success("Genehmigungskette dem Workflow zugewiesen");
+      await utils.controlPlane.snapshot.invalidate();
+    },
+  });
+
   if (isLoading) return <LoadingState />;
   if (error || !data) return <ErrorState />;
 
+  const loadChain = (chain: (typeof data.approvalChains)[number]) => {
+    setChainForm({
+      id: chain.id,
+      name: chain.name,
+      description: chain.description,
+      escalationMode: chain.escalationMode,
+      stages: chain.stages.map(stage => ({
+        stageName: stage.stageName,
+        requiredRole: stage.requiredRole,
+        defaultApproverLabel: stage.defaultApproverLabel,
+        slaMinutes: stage.slaMinutes,
+        escalationAfterMinutes: stage.escalationAfterMinutes,
+        escalationTargetLabel: stage.escalationTargetLabel,
+      })),
+    });
+  };
+
+  const saveChain = () => {
+    const payload = {
+      name: chainForm.name,
+      description: chainForm.description,
+      escalationMode: chainForm.escalationMode,
+      stages: chainForm.stages,
+    };
+
+    if (!payload.name.trim() || !payload.description.trim() || payload.stages.some(stage => !stage.stageName.trim() || !stage.defaultApproverLabel.trim() || !stage.escalationTargetLabel.trim())) {
+      toast.error("Bitte fülle Name, Beschreibung und alle Stufenfelder vollständig aus.");
+      return;
+    }
+
+    if (chainForm.id) {
+      updateChainMutation.mutate({ id: chainForm.id, ...payload });
+      return;
+    }
+
+    createChainMutation.mutate(payload);
+  };
+
   return (
     <div className="space-y-6">
-      <SectionHeader eyebrow="Human-in-the-loop" title="Approval Workflow" description="Kritische Agentenaktionen werden mit Benachrichtigung, mehrstufigen Genehmigungsketten und Eskalationsregeln zur menschlichen Freigabe geführt." />
-      <Surface className="p-6">
-        <div className="grid gap-4">
-          {data.approvals.map(item => {
-            const currentStage = item.stages.find(stage => stage.order === item.currentStageOrder);
-            const isActionable = item.status === "pending" && currentStage && (currentStage.status === "pending" || currentStage.status === "escalated");
+      <SectionHeader eyebrow="Human-in-the-loop" title="Approval Workflow" description="Kritische Agentenaktionen werden mit Benachrichtigung, mehrstufigen Genehmigungsketten, Eskalationsregeln und persistenten Freigabemustern zur menschlichen Freigabe geführt." />
+      <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+        <Surface className="p-6">
+          <div className="grid gap-4">
+            {data.approvals.map(item => {
+              const currentStage = item.stages.find(stage => stage.order === item.currentStageOrder);
+              const isActionable = item.status === "pending" && currentStage && (currentStage.status === "pending" || currentStage.status === "escalated");
 
-            return (
-              <div key={item.id} className="rounded-[24px] border border-slate-200/80 bg-white px-5 py-5 shadow-sm">
-                <div className="flex flex-col gap-5">
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                    <div>
-                      <div className="flex flex-wrap items-center gap-3">
-                        <h3 className="text-base font-semibold text-slate-950">{item.title}</h3>
-                        <ModuleBadge label={item.status} tone={item.status === "pending" ? "warning" : item.status === "approved" ? "success" : "danger"} />
-                        <ModuleBadge label={item.chainName} />
-                        <ModuleBadge label={`Escalation ${item.escalationStatus}`} tone={item.escalationStatus === "escalated" ? "warning" : item.escalationStatus === "resolved" ? "success" : "neutral"} />
+              return (
+                <div key={item.id} className="rounded-[24px] border border-slate-200/80 bg-white px-5 py-5 shadow-sm">
+                  <div className="flex flex-col gap-5">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-3">
+                          <h3 className="text-base font-semibold text-slate-950">{item.title}</h3>
+                          <ModuleBadge label={item.status} tone={item.status === "pending" ? "warning" : item.status === "approved" ? "success" : "danger"} />
+                          <ModuleBadge label={item.chainName} />
+                          <ModuleBadge label={`Escalation ${item.escalationStatus}`} tone={item.escalationStatus === "escalated" ? "warning" : item.escalationStatus === "resolved" ? "success" : "neutral"} />
+                        </div>
+                        <p className="mt-2 text-sm leading-6 text-slate-600">{item.summary}</p>
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          <ModuleBadge label={item.agentName} />
+                          <ModuleBadge label={`Requested by ${item.requestedBy}`} />
+                          <ModuleBadge label={timeAgo(item.requestedAt)} />
+                        </div>
                       </div>
-                      <p className="mt-2 text-sm leading-6 text-slate-600">{item.summary}</p>
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        <ModuleBadge label={item.agentName} />
-                        <ModuleBadge label={`Requested by ${item.requestedBy}`} />
-                        <ModuleBadge label={timeAgo(item.requestedAt)} />
-                      </div>
+                      {isActionable ? (
+                        <div className="space-y-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <select
+                              className="h-11 min-w-[220px] rounded-xl border border-slate-300 bg-white px-4 text-sm text-slate-700"
+                              value={approvalChainSelections[item.id] ?? item.chainId}
+                              onChange={event =>
+                                setApprovalChainSelections(current => ({
+                                  ...current,
+                                  [item.id]: Number(event.target.value),
+                                }))
+                              }
+                            >
+                              {data.approvalChains.map(chain => (
+                                <option key={chain.id} value={chain.id}>
+                                  {chain.name}
+                                </option>
+                              ))}
+                            </select>
+                            <Button
+                              variant="outline"
+                              className="rounded-xl border-slate-300"
+                              disabled={assignChainMutation.isPending}
+                              onClick={() =>
+                                assignChainMutation.mutate({
+                                  approvalId: item.id,
+                                  chainId: approvalChainSelections[item.id] ?? item.chainId,
+                                })
+                              }
+                            >
+                              Kette anwenden
+                            </Button>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <Button className="rounded-xl bg-slate-950 text-white hover:bg-slate-900" disabled={resolveMutation.isPending} onClick={() => resolveMutation.mutate({ approvalId: item.id, decision: "approved", note: `Stufe ${currentStage.name} bestätigt.` })}>Approve stage</Button>
+                            <Button variant="outline" className="rounded-xl border-slate-300" disabled={resolveMutation.isPending} onClick={() => resolveMutation.mutate({ approvalId: item.id, decision: "rejected", note: `Stufe ${currentStage.name} abgelehnt.` })}>Reject workflow</Button>
+                            <Button variant="outline" className="rounded-xl border-slate-300" disabled={escalateMutation.isPending} onClick={() => escalateMutation.mutate({ approvalId: item.id, reason: `Manuelle Eskalation für ${currentStage.name}.` })}>Escalate</Button>
+                            <Button variant="outline" className="rounded-xl border-slate-300" disabled={notifyMutation.isPending} onClick={() => notifyMutation.mutate({ approvalTitle: `${item.title} · ${currentStage.name}`, severity: item.riskLevel })}>Notify</Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">Approver: {item.approver || currentStage?.ownerLabel || "–"}</div>
+                      )}
                     </div>
-                    {isActionable ? (
-                      <div className="flex flex-wrap gap-2">
-                        <Button className="rounded-xl bg-slate-950 text-white hover:bg-slate-900" disabled={resolveMutation.isPending} onClick={() => resolveMutation.mutate({ approvalId: item.id, decision: "approved", note: `Stufe ${currentStage.name} bestätigt.` })}>Approve stage</Button>
-                        <Button variant="outline" className="rounded-xl border-slate-300" disabled={resolveMutation.isPending} onClick={() => resolveMutation.mutate({ approvalId: item.id, decision: "rejected", note: `Stufe ${currentStage.name} abgelehnt.` })}>Reject workflow</Button>
-                        <Button variant="outline" className="rounded-xl border-slate-300" disabled={escalateMutation.isPending} onClick={() => escalateMutation.mutate({ approvalId: item.id, reason: `Manuelle Eskalation für ${currentStage.name}.` })}>Escalate</Button>
-                        <Button variant="outline" className="rounded-xl border-slate-300" disabled={notifyMutation.isPending} onClick={() => notifyMutation.mutate({ approvalTitle: `${item.title} · ${currentStage.name}`, severity: item.riskLevel })}>Notify</Button>
-                      </div>
-                    ) : (
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">Approver: {item.approver || currentStage?.ownerLabel || "–"}</div>
-                    )}
-                  </div>
-                  <div className="grid gap-3 xl:grid-cols-3">
-                    {item.stages.map(stage => (
-                      <div key={stage.id} className={`rounded-2xl border px-4 py-4 ${stage.order === item.currentStageOrder && item.status === "pending" ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200 bg-slate-50 text-slate-900"}`}>
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="text-sm font-semibold">{stage.order}. {stage.name}</p>
-                          <ModuleBadge label={stage.status} tone={stage.status === "approved" ? "success" : stage.status === "rejected" ? "danger" : stage.status === "escalated" ? "warning" : "neutral"} />
+                    <div className="grid gap-3 xl:grid-cols-3">
+                      {item.stages.map(stage => (
+                        <div key={stage.id} className={`rounded-2xl border px-4 py-4 ${stage.order === item.currentStageOrder && item.status === "pending" ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200 bg-slate-50 text-slate-900"}`}>
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="text-sm font-semibold">{stage.order}. {stage.name}</p>
+                            <ModuleBadge label={stage.status} tone={stage.status === "approved" ? "success" : stage.status === "rejected" ? "danger" : stage.status === "escalated" ? "warning" : "neutral"} />
+                          </div>
+                          <div className={`mt-3 space-y-2 text-sm ${stage.order === item.currentStageOrder && item.status === "pending" ? "text-slate-200" : "text-slate-600"}`}>
+                            <p>Owner: {stage.ownerLabel}</p>
+                            <p>Role: {stage.requiredRole}</p>
+                            <p>SLA: {stage.slaMinutes} Min · Escalation: {stage.escalationAfterMinutes} Min</p>
+                            <p>Target: {stage.escalationTarget}</p>
+                            {stage.note ? <p>Note: {stage.note}</p> : null}
+                          </div>
                         </div>
-                        <div className={`mt-3 space-y-2 text-sm ${stage.order === item.currentStageOrder && item.status === "pending" ? "text-slate-200" : "text-slate-600"}`}>
-                          <p>Owner: {stage.ownerLabel}</p>
-                          <p>Role: {stage.requiredRole}</p>
-                          <p>SLA: {stage.slaMinutes} Min · Escalation: {stage.escalationAfterMinutes} Min</p>
-                          <p>Target: {stage.escalationTarget}</p>
-                          {stage.note ? <p>Note: {stage.note}</p> : null}
-                        </div>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
                 </div>
+              );
+            })}
+          </div>
+        </Surface>
+
+        <div className="space-y-6">
+          <Surface className="p-6">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-slate-950">Persistente Genehmigungsketten</p>
+                <p className="mt-2 text-sm leading-6 text-slate-600">Benutzer können eigene Freigabemuster mit Eskalationslogik definieren, speichern und später erneut verwenden.</p>
               </div>
-            );
-          })}
+              <Button variant="outline" className="rounded-xl border-slate-300" onClick={() => setChainForm(createEmptyChainForm())}>Neue Kette</Button>
+            </div>
+            <div className="mt-5 space-y-3">
+              {data.approvalChains.map(chain => (
+                <button key={chain.id} className={`w-full rounded-2xl border px-4 py-4 text-left transition ${chainForm.id === chain.id ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200 bg-white text-slate-900"}`} onClick={() => loadChain(chain)}>
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-semibold">{chain.name}</p>
+                    <ModuleBadge label={`${chain.stages.length} stages`} tone={chain.stages.length > 2 ? "warning" : "neutral"} />
+                  </div>
+                  <p className={`mt-2 text-sm leading-6 ${chainForm.id === chain.id ? "text-slate-200" : "text-slate-600"}`}>{chain.description}</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <ModuleBadge label={chain.escalationMode} tone="neutral" />
+                    <ModuleBadge label={`Aktualisiert ${timeAgo(chain.updatedAt)}`} tone="neutral" />
+                  </div>
+                </button>
+              ))}
+            </div>
+          </Surface>
+
+          <Surface className="p-6">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-slate-950">Genehmigungsketten-Editor</p>
+                <p className="mt-2 text-sm leading-6 text-slate-600">Erstelle oder bearbeite mehrstufige Freigabemuster mit Rollen, Standard-Ownern, SLA und Eskalationszielen.</p>
+              </div>
+              <ModuleBadge label={chainForm.id ? "Bearbeiten" : "Neu"} tone={chainForm.id ? "warning" : "success"} />
+            </div>
+            <div className="mt-5 space-y-4">
+              <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Name der Genehmigungskette" value={chainForm.name} onChange={e => setChainForm({ ...chainForm, name: e.target.value })} />
+              <textarea className="min-h-[108px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm" placeholder="Beschreibung und Einsatzzweck" value={chainForm.description} onChange={e => setChainForm({ ...chainForm, description: e.target.value })} />
+              <select className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm" value={chainForm.escalationMode} onChange={e => setChainForm({ ...chainForm, escalationMode: e.target.value as "serial" | "parallel" | "auto_escalate" })}>
+                <option value="serial">serial</option>
+                <option value="parallel">parallel</option>
+                <option value="auto_escalate">auto_escalate</option>
+              </select>
+
+              <div className="space-y-4">
+                {chainForm.stages.map((stage, index) => (
+                  <div key={`${chainForm.id ?? "new"}-${index}`} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-semibold text-slate-950">Stufe {index + 1}</p>
+                      {chainForm.stages.length > 1 ? (
+                        <button className="text-xs font-medium text-slate-500 transition hover:text-rose-600" onClick={() => setChainForm({ ...chainForm, stages: chainForm.stages.filter((_, currentIndex) => currentIndex !== index) })}>
+                          Entfernen
+                        </button>
+                      ) : null}
+                    </div>
+                    <div className="mt-4 grid gap-3">
+                      <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Stage Name" value={stage.stageName} onChange={e => setChainForm({ ...chainForm, stages: chainForm.stages.map((item, currentIndex) => currentIndex === index ? { ...item, stageName: e.target.value } : item) })} />
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Required Role" value={stage.requiredRole} onChange={e => setChainForm({ ...chainForm, stages: chainForm.stages.map((item, currentIndex) => currentIndex === index ? { ...item, requiredRole: e.target.value } : item) })} />
+                        <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Standard Owner" value={stage.defaultApproverLabel} onChange={e => setChainForm({ ...chainForm, stages: chainForm.stages.map((item, currentIndex) => currentIndex === index ? { ...item, defaultApproverLabel: e.target.value } : item) })} />
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <input type="number" className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="SLA in Minuten" value={stage.slaMinutes} onChange={e => setChainForm({ ...chainForm, stages: chainForm.stages.map((item, currentIndex) => currentIndex === index ? { ...item, slaMinutes: Number(e.target.value) } : item) })} />
+                        <input type="number" className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Eskalation nach Minuten" value={stage.escalationAfterMinutes} onChange={e => setChainForm({ ...chainForm, stages: chainForm.stages.map((item, currentIndex) => currentIndex === index ? { ...item, escalationAfterMinutes: Number(e.target.value) } : item) })} />
+                      </div>
+                      <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Eskalationsziel" value={stage.escalationTargetLabel} onChange={e => setChainForm({ ...chainForm, stages: chainForm.stages.map((item, currentIndex) => currentIndex === index ? { ...item, escalationTargetLabel: e.target.value } : item) })} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex flex-wrap gap-3">
+                <Button variant="outline" className="rounded-xl border-slate-300" onClick={() => setChainForm({
+                  ...chainForm,
+                  stages: [
+                    ...chainForm.stages,
+                    {
+                      stageName: "",
+                      requiredRole: "approver",
+                      defaultApproverLabel: "",
+                      slaMinutes: 60,
+                      escalationAfterMinutes: 90,
+                      escalationTargetLabel: "",
+                    },
+                  ],
+                })}>Stufe hinzufügen</Button>
+                <Button className="rounded-xl bg-slate-950 text-white hover:bg-slate-900" disabled={createChainMutation.isPending || updateChainMutation.isPending} onClick={saveChain}>{chainForm.id ? "Kette aktualisieren" : "Kette speichern"}</Button>
+              </div>
+            </div>
+          </Surface>
         </div>
-      </Surface>
+      </div>
     </div>
   );
 }

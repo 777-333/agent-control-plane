@@ -23,3 +23,4 @@
 - [x] Observability & Cost Monitoring mit regelmäßig aktualisierten Metrikflüssen statt rein statischen Snapshots erweitern
 - [x] Drizzle-Migration auf die laufende Datenbank anwenden und Datenmodell synchronisieren
 - [x] Mehrstufige Genehmigungsketten mit Eskalationsregeln für komplexere Arbeitsabläufe implementieren
+- [x] Persistente Genehmigungsketten-Editoren implementieren, damit Benutzer eigene Freigabemuster erstellen, bearbeiten, speichern und auswählen können

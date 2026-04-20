@@ -97,6 +97,78 @@ describe("control plane router", () => {
     expect(escalated.stages[1]?.ownerLabel).toBe("Executive Risk Committee");
   });
 
+  it("creates and updates a custom approval chain via the persistent editor endpoints", async () => {
+    const caller = appRouter.createCaller(createAuthContext());
+
+    const created = await caller.approvals.createChain({
+      name: "Security incident escalation chain",
+      description: "Dreistufige Freigabekette für kritische Sicherheitsmaßnahmen mit Eskalation an das Incident Board.",
+      escalationMode: "auto_escalate",
+      stages: [
+        {
+          stageName: "SOC Triage",
+          requiredRole: "approver",
+          defaultApproverLabel: "SOC Lead",
+          slaMinutes: 20,
+          escalationAfterMinutes: 30,
+          escalationTargetLabel: "Head of Security Operations",
+        },
+        {
+          stageName: "Incident Commander Approval",
+          requiredRole: "admin",
+          defaultApproverLabel: "Incident Commander",
+          slaMinutes: 30,
+          escalationAfterMinutes: 45,
+          escalationTargetLabel: "Security Steering Committee",
+        },
+      ],
+    });
+
+    expect(created.name).toBe("Security incident escalation chain");
+    expect(created.stages).toHaveLength(2);
+
+    const updated = await caller.approvals.updateChain({
+      id: created.id,
+      name: "Security incident escalation chain",
+      description: "Aktualisierte Freigabekette für kritische Sicherheitsmaßnahmen mit Executive Escalation.",
+      escalationMode: "parallel",
+      stages: [
+        {
+          stageName: "SOC Triage",
+          requiredRole: "approver",
+          defaultApproverLabel: "SOC Lead",
+          slaMinutes: 20,
+          escalationAfterMinutes: 25,
+          escalationTargetLabel: "Head of Security Operations",
+        },
+        {
+          stageName: "Executive Approval",
+          requiredRole: "admin",
+          defaultApproverLabel: "CISO Office",
+          slaMinutes: 30,
+          escalationAfterMinutes: 40,
+          escalationTargetLabel: "Executive Risk Committee",
+        },
+      ],
+    });
+
+    expect(updated.escalationMode).toBe("parallel");
+    expect(updated.stages[1]?.stageName).toBe("Executive Approval");
+
+    const chains = await caller.approvals.chains();
+    expect(chains.some(item => item.id === created.id && item.escalationMode === "parallel")).toBe(true);
+
+    const assigned = await caller.approvals.assignChain({
+      approvalId: 2,
+      chainId: created.id,
+    });
+
+    expect(assigned.chainId).toBe(created.id);
+    expect(assigned.chainName).toBe("Security incident escalation chain");
+    expect(assigned.currentStageOrder).toBe(1);
+    expect(assigned.stages[0]?.name).toBe("SOC Triage");
+  });
+
   it("creates teams and permissions for Rollen- und Rechteverwaltung", async () => {
     const caller = appRouter.createCaller(createAuthContext());
 

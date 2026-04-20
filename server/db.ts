@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
+import { InsertUser, approvalChains, approvalStages, users } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -138,6 +138,27 @@ type ApprovalStageRecord = {
   note?: string;
 };
 
+type ApprovalChainStageTemplateRecord = {
+  id: number;
+  stageOrder: number;
+  stageName: string;
+  requiredRole: string;
+  defaultApproverLabel: string;
+  slaMinutes: number;
+  escalationAfterMinutes: number;
+  escalationTargetLabel: string;
+};
+
+type ApprovalChainTemplateRecord = {
+  id: number;
+  name: string;
+  description: string;
+  escalationMode: "serial" | "parallel" | "auto_escalate";
+  createdAt: number;
+  updatedAt: number;
+  stages: ApprovalChainStageTemplateRecord[];
+};
+
 type ApprovalRecord = {
   id: number;
   agentId: number;
@@ -240,6 +261,9 @@ let nextTeamId = 4;
 let nextPermissionId = 5;
 let nextEvaluationId = 4;
 let nextGuardrailId = 4;
+let nextApprovalChainId = 3;
+let nextApprovalStageTemplateId = 1000;
+let approvalChainSeedChecked = false;
 
 const agentsData: AgentRecord[] = [
   {
@@ -328,6 +352,34 @@ const policiesData: PolicyRecord[] = [
     priority: 40,
     isActive: true,
     description: "Browser-Interaktionen sind im Staging erlaubt und in Produktion gesondert zu prüfen.",
+  },
+];
+
+const approvalChainTemplatesData: ApprovalChainTemplateRecord[] = [
+  {
+    id: 1,
+    name: "Finance critical disbursement chain",
+    description: "Dreistufiges Freigabemuster für hochkritische ERP-Zahlungen mit CFO- und Legal-Eskalation.",
+    escalationMode: "auto_escalate",
+    createdAt: now - 1000 * 60 * 60 * 24 * 14,
+    updatedAt: now - 1000 * 60 * 70,
+    stages: [
+      { id: 1001, stageOrder: 1, stageName: "Finance Ops Review", requiredRole: "approver", defaultApproverLabel: "Finance Operations", slaMinutes: 30, escalationAfterMinutes: 45, escalationTargetLabel: "Head of Finance Operations" },
+      { id: 1002, stageOrder: 2, stageName: "CFO Approval", requiredRole: "admin", defaultApproverLabel: "CFO Office", slaMinutes: 45, escalationAfterMinutes: 60, escalationTargetLabel: "Executive Risk Committee" },
+      { id: 1003, stageOrder: 3, stageName: "Legal Confirmation", requiredRole: "approver", defaultApproverLabel: "Legal Counsel", slaMinutes: 60, escalationAfterMinutes: 90, escalationTargetLabel: "General Counsel" },
+    ],
+  },
+  {
+    id: 2,
+    name: "Customer credit escalation chain",
+    description: "Zweistufiges Freigabemuster für Kulanzgutschriften mit Customer-Success- und Finance-Review.",
+    escalationMode: "serial",
+    createdAt: now - 1000 * 60 * 60 * 24 * 9,
+    updatedAt: now - 1000 * 60 * 95,
+    stages: [
+      { id: 2001, stageOrder: 1, stageName: "CS Lead Approval", requiredRole: "approver", defaultApproverLabel: "Customer Success Lead", slaMinutes: 60, escalationAfterMinutes: 90, escalationTargetLabel: "VP Customer Success" },
+      { id: 2002, stageOrder: 2, stageName: "Finance Threshold Review", requiredRole: "approver", defaultApproverLabel: "Finance Business Partner", slaMinutes: 45, escalationAfterMinutes: 90, escalationTargetLabel: "Head of Revenue Operations" },
+    ],
   },
 ];
 
@@ -565,6 +617,58 @@ const permissionsData: PermissionRecord[] = [
   { id: 4, subject: "Strategy Office", subjectType: "team", agentName: "Research Navigator", permissionLevel: "operator", toolScope: "Browser, Datenbank" },
 ];
 
+function cloneApprovalChainTemplate(chain: ApprovalChainTemplateRecord): ApprovalChainTemplateRecord {
+  return {
+    ...chain,
+    stages: chain.stages.map(stage => ({ ...stage })),
+  };
+}
+
+async function ensureApprovalChainSeeded() {
+  if (approvalChainSeedChecked) {
+    return;
+  }
+
+  const db = await getDb();
+  if (!db) {
+    approvalChainSeedChecked = true;
+    return;
+  }
+
+  const existingChains = await db.select().from(approvalChains);
+  if (existingChains.length === 0) {
+    await db.insert(approvalChains).values(
+      approvalChainTemplatesData.map(chain => ({
+        id: chain.id,
+        name: chain.name,
+        description: chain.description,
+        escalationMode: chain.escalationMode,
+        createdAt: new Date(chain.createdAt),
+        updatedAt: new Date(chain.updatedAt),
+      })),
+    );
+
+    await db.insert(approvalStages).values(
+      approvalChainTemplatesData.flatMap(chain =>
+        chain.stages.map(stage => ({
+          id: stage.id,
+          chainId: chain.id,
+          stageOrder: stage.stageOrder,
+          stageName: stage.stageName,
+          requiredRole: stage.requiredRole,
+          defaultApproverLabel: stage.defaultApproverLabel,
+          slaMinutes: stage.slaMinutes,
+          escalationAfterMinutes: stage.escalationAfterMinutes,
+          escalationTargetLabel: stage.escalationTargetLabel,
+          createdAt: new Date(chain.createdAt),
+        })),
+      ),
+    );
+  }
+
+  approvalChainSeedChecked = true;
+}
+
 function getCurrentApprovalStage(approval: ApprovalRecord) {
   return approval.stages.find(stage => stage.order === approval.currentStageOrder);
 }
@@ -720,9 +824,242 @@ export async function createPolicy(input: {
   return newPolicy;
 }
 
+export async function listApprovalChains() {
+  const db = await getDb();
+  if (!db) {
+    return [...approvalChainTemplatesData]
+      .map(cloneApprovalChainTemplate)
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+  }
+
+  await ensureApprovalChainSeeded();
+  const [chains, stages] = await Promise.all([
+    db.select().from(approvalChains),
+    db.select().from(approvalStages),
+  ]);
+
+  return chains
+    .map(chain => ({
+      id: chain.id,
+      name: chain.name,
+      description: chain.description ?? "",
+      escalationMode: chain.escalationMode,
+      createdAt: chain.createdAt.getTime(),
+      updatedAt: chain.updatedAt.getTime(),
+      stages: stages
+        .filter(stage => stage.chainId === chain.id)
+        .sort((a, b) => a.stageOrder - b.stageOrder)
+        .map(stage => ({
+          id: stage.id,
+          stageOrder: stage.stageOrder,
+          stageName: stage.stageName,
+          requiredRole: stage.requiredRole,
+          defaultApproverLabel: stage.defaultApproverLabel,
+          slaMinutes: stage.slaMinutes,
+          escalationAfterMinutes: stage.escalationAfterMinutes,
+          escalationTargetLabel: stage.escalationTargetLabel,
+        })),
+    }))
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+export async function createApprovalChainTemplate(input: {
+  name: string;
+  description: string;
+  escalationMode: "serial" | "parallel" | "auto_escalate";
+  stages: Array<{
+    stageName: string;
+    requiredRole: string;
+    defaultApproverLabel: string;
+    slaMinutes: number;
+    escalationAfterMinutes: number;
+    escalationTargetLabel: string;
+  }>;
+}) {
+  const timestamp = Date.now();
+  const db = await getDb();
+
+  if (!db) {
+    const chain: ApprovalChainTemplateRecord = {
+      id: nextApprovalChainId++,
+      name: input.name,
+      description: input.description,
+      escalationMode: input.escalationMode,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      stages: input.stages.map((stage, index) => ({
+        id: nextApprovalStageTemplateId++,
+        stageOrder: index + 1,
+        ...stage,
+      })),
+    };
+    approvalChainTemplatesData.unshift(chain);
+    return cloneApprovalChainTemplate(chain);
+  }
+
+  await ensureApprovalChainSeeded();
+  const existingChains = await db.select().from(approvalChains);
+  const existingStages = await db.select().from(approvalStages);
+  const chainId = Math.max(0, ...existingChains.map(chain => chain.id)) + 1;
+  let nextStageId = Math.max(0, ...existingStages.map(stage => stage.id)) + 1;
+
+  await db.insert(approvalChains).values({
+    id: chainId,
+    name: input.name,
+    description: input.description,
+    escalationMode: input.escalationMode,
+    createdAt: new Date(timestamp),
+    updatedAt: new Date(timestamp),
+  });
+
+  await db.insert(approvalStages).values(
+    input.stages.map((stage, index) => ({
+      id: nextStageId++,
+      chainId,
+      stageOrder: index + 1,
+      stageName: stage.stageName,
+      requiredRole: stage.requiredRole,
+      defaultApproverLabel: stage.defaultApproverLabel,
+      slaMinutes: stage.slaMinutes,
+      escalationAfterMinutes: stage.escalationAfterMinutes,
+      escalationTargetLabel: stage.escalationTargetLabel,
+      createdAt: new Date(timestamp),
+    })),
+  );
+
+  const chains = await listApprovalChains();
+  const created = chains.find(chain => chain.id === chainId);
+  if (!created) {
+    throw new Error("Approval chain could not be loaded after creation");
+  }
+  return created;
+}
+
+export async function updateApprovalChainTemplate(input: {
+  id: number;
+  name: string;
+  description: string;
+  escalationMode: "serial" | "parallel" | "auto_escalate";
+  stages: Array<{
+    stageName: string;
+    requiredRole: string;
+    defaultApproverLabel: string;
+    slaMinutes: number;
+    escalationAfterMinutes: number;
+    escalationTargetLabel: string;
+  }>;
+}) {
+  const timestamp = Date.now();
+  const db = await getDb();
+
+  if (!db) {
+    const index = approvalChainTemplatesData.findIndex(chain => chain.id === input.id);
+    if (index === -1) {
+      throw new Error("Approval chain not found");
+    }
+    approvalChainTemplatesData[index] = {
+      id: input.id,
+      name: input.name,
+      description: input.description,
+      escalationMode: input.escalationMode,
+      createdAt: approvalChainTemplatesData[index]!.createdAt,
+      updatedAt: timestamp,
+      stages: input.stages.map((stage, idx) => ({
+        id: nextApprovalStageTemplateId++,
+        stageOrder: idx + 1,
+        ...stage,
+      })),
+    };
+    return cloneApprovalChainTemplate(approvalChainTemplatesData[index]!);
+  }
+
+  await ensureApprovalChainSeeded();
+  const existing = await db.select().from(approvalChains).where(eq(approvalChains.id, input.id)).limit(1);
+  if (existing.length === 0) {
+    throw new Error("Approval chain not found");
+  }
+
+  await db.update(approvalChains).set({
+    name: input.name,
+    description: input.description,
+    escalationMode: input.escalationMode,
+    updatedAt: new Date(timestamp),
+  }).where(eq(approvalChains.id, input.id));
+
+  await db.delete(approvalStages).where(eq(approvalStages.chainId, input.id));
+
+  const allStages = await db.select().from(approvalStages);
+  let nextStageId = Math.max(0, ...allStages.map(stage => stage.id)) + 1;
+  await db.insert(approvalStages).values(
+    input.stages.map((stage, index) => ({
+      id: nextStageId++,
+      chainId: input.id,
+      stageOrder: index + 1,
+      stageName: stage.stageName,
+      requiredRole: stage.requiredRole,
+      defaultApproverLabel: stage.defaultApproverLabel,
+      slaMinutes: stage.slaMinutes,
+      escalationAfterMinutes: stage.escalationAfterMinutes,
+      escalationTargetLabel: stage.escalationTargetLabel,
+      createdAt: new Date(timestamp),
+    })),
+  );
+
+  const chains = await listApprovalChains();
+  const updated = chains.find(chain => chain.id === input.id);
+  if (!updated) {
+    throw new Error("Approval chain could not be loaded after update");
+  }
+  return updated;
+}
+
 export async function listApprovals() {
   synchronizeApprovalEscalations();
   return [...approvalsData].sort((a, b) => b.requestedAt - a.requestedAt);
+}
+
+export async function applyApprovalChainToApproval(input: { approvalId: number; chainId: number; triggeredBy: string }) {
+  const approval = approvalsData.find(item => item.id === input.approvalId);
+  if (!approval) {
+    throw new Error("Approval not found");
+  }
+
+  const chain = (await listApprovalChains()).find(item => item.id === input.chainId);
+  if (!chain) {
+    throw new Error("Approval chain not found");
+  }
+
+  approval.chainId = chain.id;
+  approval.chainName = chain.name;
+  approval.currentStageOrder = 1;
+  approval.status = "pending";
+  approval.escalationStatus = chain.escalationMode === "auto_escalate" ? "pending" : "none";
+  approval.approver = undefined;
+  approval.stages = chain.stages.map((stage, index) => ({
+    id: stage.id,
+    order: stage.stageOrder,
+    name: stage.stageName,
+    requiredRole: stage.requiredRole,
+    ownerLabel: stage.defaultApproverLabel,
+    status: index === 0 ? "pending" : "waiting",
+    startedAt: index === 0 ? Date.now() : undefined,
+    slaMinutes: stage.slaMinutes,
+    escalationAfterMinutes: stage.escalationAfterMinutes,
+    escalationTarget: stage.escalationTargetLabel,
+  }));
+
+  addAuditEvent({
+    agentId: approval.agentId,
+    agentName: approval.agentName,
+    severity: "info",
+    category: "Approval Workflow",
+    title: "Genehmigungskette zugewiesen",
+    detail: `Die gespeicherte Freigabekette \"${chain.name}\" wurde durch ${input.triggeredBy} auf \"${approval.title}\" angewendet.`,
+    actorType: "user",
+    actorRef: input.triggeredBy,
+  });
+
+  return approval;
 }
 
 export async function resolveApprovalStage(input: { approvalId: number; decision: "approved" | "rejected"; approver: string; note?: string }) {
@@ -966,6 +1303,7 @@ export async function getControlPlaneSnapshot() {
     dashboard: await getDashboardOverview(),
     agents: await listAgents(),
     policies: await listPolicies(),
+    approvalChains: await listApprovalChains(),
     approvals: await listApprovals(),
     auditEvents: await listAuditEvents(),
     connectors: await listConnectors(),

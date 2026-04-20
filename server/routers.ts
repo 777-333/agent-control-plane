@@ -4,7 +4,9 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import {
+  applyApprovalChainToApproval,
   createAgent,
+  createApprovalChainTemplate,
   createEvaluationRun,
   createGuardrailEvent,
   createPermission,
@@ -14,6 +16,7 @@ import {
   getControlPlaneSnapshot,
   getDashboardOverview,
   listAgents,
+  listApprovalChains,
   listApprovals,
   listAuditEvents,
   listConnectors,
@@ -23,6 +26,7 @@ import {
   listPolicies,
   resolveApprovalStage,
   escalateApproval,
+  updateApprovalChainTemplate,
 } from "./db";
 import { notifyOwner } from "./_core/notification";
 
@@ -100,6 +104,60 @@ export const appRouter = router({
   }),
   approvals: router({
     list: protectedProcedure.query(async () => listApprovals()),
+    chains: protectedProcedure.query(async () => listApprovalChains()),
+    createChain: protectedProcedure
+      .input(
+        z.object({
+          name: z.string().min(2),
+          description: z.string().min(8),
+          escalationMode: z.enum(["serial", "parallel", "auto_escalate"]),
+          stages: z.array(
+            z.object({
+              stageName: z.string().min(2),
+              requiredRole: z.string().min(2),
+              defaultApproverLabel: z.string().min(2),
+              slaMinutes: z.number().int().min(1).max(1440),
+              escalationAfterMinutes: z.number().int().min(1).max(2880),
+              escalationTargetLabel: z.string().min(2),
+            }),
+          ).min(1),
+        }),
+      )
+      .mutation(async ({ input }) => createApprovalChainTemplate(input)),
+    updateChain: protectedProcedure
+      .input(
+        z.object({
+          id: z.number().int(),
+          name: z.string().min(2),
+          description: z.string().min(8),
+          escalationMode: z.enum(["serial", "parallel", "auto_escalate"]),
+          stages: z.array(
+            z.object({
+              stageName: z.string().min(2),
+              requiredRole: z.string().min(2),
+              defaultApproverLabel: z.string().min(2),
+              slaMinutes: z.number().int().min(1).max(1440),
+              escalationAfterMinutes: z.number().int().min(1).max(2880),
+              escalationTargetLabel: z.string().min(2),
+            }),
+          ).min(1),
+        }),
+      )
+      .mutation(async ({ input }) => updateApprovalChainTemplate(input)),
+    assignChain: protectedProcedure
+      .input(
+        z.object({
+          approvalId: z.number().int(),
+          chainId: z.number().int(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) =>
+        applyApprovalChainToApproval({
+          approvalId: input.approvalId,
+          chainId: input.chainId,
+          triggeredBy: ctx.user.name || ctx.user.email || "Current User",
+        }),
+      ),
     resolve: protectedProcedure
       .input(
         z.object({
