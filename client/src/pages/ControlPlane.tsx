@@ -1,7 +1,7 @@
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { createDefaultSimulationSignals, createEmptyApprovalStageDraft, getLaneLabel, moveStageToDropZone, reorderApprovalChainStages, simulateApprovalChain, simulateApprovalTimeline, type ApprovalChainStageDraft } from "@/lib/approval-chain-editor";
+import { createDefaultBusinessCalendar, createDefaultSimulationSignals, createEmptyApprovalStageDraft, getLaneLabel, moveStageToDropZone, reorderApprovalChainStages, simulateApprovalChain, simulateApprovalTimeline, type ApprovalBusinessCalendar, type ApprovalChainStageDraft } from "@/lib/approval-chain-editor";
 import { Loader2, Shield, Activity, BellRing, BrainCircuit, FileSearch, Blocks, UserCog, Fingerprint, ChartNoAxesCombined, Waypoints, Sparkles, GripVertical } from "lucide-react";
 import { toast } from "sonner";
 import { useMemo, useState } from "react";
@@ -624,6 +624,7 @@ export function ApprovalsPage() {
   const [draggedStageIndex, setDraggedStageIndex] = useState<number | null>(null);
   const [dropStageIndex, setDropStageIndex] = useState<number | null>(null);
   const [simulationSignals, setSimulationSignals] = useState(createDefaultSimulationSignals);
+  const [simulationCalendar, setSimulationCalendar] = useState<ApprovalBusinessCalendar>(createDefaultBusinessCalendar);
   const [simulationMinute, setSimulationMinute] = useState(0);
 
   const resolveMutation = trpc.approvals.resolve.useMutation({
@@ -700,7 +701,7 @@ export function ApprovalsPage() {
   };
 
   const simulationPreview = useMemo(() => simulateApprovalChain(chainForm.stages, simulationSignals), [chainForm.stages, simulationSignals]);
-  const timelinePreview = useMemo(() => simulateApprovalTimeline(chainForm.stages, simulationSignals), [chainForm.stages, simulationSignals]);
+  const timelinePreview = useMemo(() => simulateApprovalTimeline(chainForm.stages, simulationSignals, simulationCalendar), [chainForm.stages, simulationSignals, simulationCalendar]);
   const simulationDuration = useMemo(() => timelinePreview.reduce((max, stage) => Math.max(max, stage.endMinute), 0), [timelinePreview]);
 
   const saveChain = () => {
@@ -1044,9 +1045,30 @@ export function ApprovalsPage() {
                   <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                     <div>
                       <p className="text-sm font-semibold text-slate-950">Zeitfenster-Simulation</p>
-                      <p className="mt-1 text-sm leading-6 text-slate-600">Bewege den Zeitpunkt, um SLA-Fristen, Eskalationen und aktive Stufen entlang des geplanten Pfads zu prüfen.</p>
+                      <p className="mt-1 text-sm leading-6 text-slate-600">Bewege den Zeitpunkt, um SLA-Fristen, Eskalationen und aktive Stufen entlang des geplanten Pfads unter Berücksichtigung von Geschäftszeiten und Feiertagen zu prüfen.</p>
                     </div>
-                    <ModuleBadge label={`T+${simulationMinute} Min`} tone="success" />
+                    <div className="flex flex-wrap gap-2">
+                      <ModuleBadge label={`${simulationCalendar.businessDayStartHour}:00–${simulationCalendar.businessDayEndHour}:00`} tone="neutral" />
+                      <ModuleBadge label={`T+${simulationMinute} Min`} tone="success" />
+                    </div>
+                  </div>
+                  <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                    <label className="grid gap-2 text-xs font-medium uppercase tracking-[0.16em] text-slate-500">
+                      Start Geschäftszeit
+                      <input type="number" min={0} max={23} className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-normal tracking-normal text-slate-700" value={simulationCalendar.businessDayStartHour} onChange={event => setSimulationCalendar(current => ({ ...current, businessDayStartHour: Number(event.target.value) || 0 }))} />
+                    </label>
+                    <label className="grid gap-2 text-xs font-medium uppercase tracking-[0.16em] text-slate-500">
+                      Ende Geschäftszeit
+                      <input type="number" min={1} max={24} className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-normal tracking-normal text-slate-700" value={simulationCalendar.businessDayEndHour} onChange={event => setSimulationCalendar(current => ({ ...current, businessDayEndHour: Number(event.target.value) || 1 }))} />
+                    </label>
+                    <label className="grid gap-2 text-xs font-medium uppercase tracking-[0.16em] text-slate-500 md:col-span-2">
+                      Feiertage (YYYY-MM-DD, kommasepariert)
+                      <input className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-normal tracking-normal text-slate-700" value={simulationCalendar.holidayDates.join(", ")} onChange={event => setSimulationCalendar(current => ({ ...current, holidayDates: event.target.value.split(",").map(entry => entry.trim()).filter(Boolean) }))} />
+                    </label>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500">
+                    <span className="rounded-full bg-white px-3 py-1">Arbeitstage: {simulationCalendar.workingDays.join(", ")}</span>
+                    <span className="rounded-full bg-white px-3 py-1">Feiertage aktiv: {simulationCalendar.holidayDates.length}</span>
                   </div>
                   <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto] md:items-center">
                     <input type="range" min={0} max={Math.max(simulationDuration, 1)} value={Math.min(simulationMinute, Math.max(simulationDuration, 1))} onChange={event => setSimulationMinute(Number(event.target.value))} className="w-full accent-slate-950" />
@@ -1088,10 +1110,10 @@ export function ApprovalsPage() {
                               <div className="absolute top-[-6px] h-6 w-[2px] bg-sky-600" style={{ left: `${(Math.min(simulationMinute, total) / total) * 100}%` }} />
                             </div>
                             <div className="mt-3 grid gap-2 text-xs text-slate-500 md:grid-cols-4">
-                              <span>Start: T+{stage.startMinute}</span>
-                              <span>SLA: T+{stage.slaDeadlineMinute}</span>
-                              <span>Eskalation: T+{stage.escalationMinute}</span>
-                              <span>Ende: T+{stage.endMinute}</span>
+                              <span>Start: Tag {stage.startDayOffset}, T+{stage.startBusinessMinute} Arbeitsmin</span>
+                              <span>SLA: Tag {stage.slaDeadlineDayOffset}, T+{stage.slaDeadlineBusinessMinute} Arbeitsmin</span>
+                              <span>Eskalation: Tag {stage.escalationDayOffset}, T+{stage.escalationBusinessMinute} Arbeitsmin</span>
+                              <span>Ende: Tag {stage.endDayOffset}, T+{stage.endBusinessMinute} Arbeitsmin</span>
                             </div>
                           </div>
                         </div>

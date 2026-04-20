@@ -133,6 +133,21 @@ export type ApprovalTimelineEntry = ApprovalSimulationEntry & {
   escalationMinute: number;
   endMinute: number;
   durationMinute: number;
+  startBusinessMinute: number;
+  endBusinessMinute: number;
+  slaDeadlineBusinessMinute: number;
+  escalationBusinessMinute: number;
+  startDayOffset: number;
+  endDayOffset: number;
+  slaDeadlineDayOffset: number;
+  escalationDayOffset: number;
+};
+
+export type ApprovalBusinessCalendar = {
+  businessDayStartHour: number;
+  businessDayEndHour: number;
+  workingDays: number[];
+  holidayDates: string[];
 };
 
 export function createDefaultSimulationSignals(): ApprovalSimulationSignals {
@@ -144,6 +159,15 @@ export function createDefaultSimulationSignals(): ApprovalSimulationSignals {
     summary: "Kritische Auszahlung mit ERP- und Finance-Scope.",
     chainName: "Simulation",
     escalationStatus: "pending",
+  };
+}
+
+export function createDefaultBusinessCalendar(): ApprovalBusinessCalendar {
+  return {
+    businessDayStartHour: 9,
+    businessDayEndHour: 17,
+    workingDays: [1, 2, 3, 4, 5],
+    holidayDates: ["2026-01-01", "2026-12-25"],
   };
 }
 
@@ -183,6 +207,66 @@ function describeQuorum(stage: ApprovalChainStageDraft): string | null {
     default:
       return "Alle Freigaben";
   }
+}
+
+function normalizeCalendar(calendar?: ApprovalBusinessCalendar): ApprovalBusinessCalendar {
+  const fallback = createDefaultBusinessCalendar();
+  const workingDays = calendar?.workingDays?.length ? [...calendar.workingDays] : fallback.workingDays;
+  const businessDayStartHour = calendar?.businessDayStartHour ?? fallback.businessDayStartHour;
+  const businessDayEndHour = calendar?.businessDayEndHour ?? fallback.businessDayEndHour;
+
+  return {
+    businessDayStartHour,
+    businessDayEndHour: Math.max(businessDayEndHour, businessDayStartHour + 1),
+    workingDays,
+    holidayDates: calendar?.holidayDates?.filter(Boolean) ?? fallback.holidayDates,
+  };
+}
+
+function getBusinessMinutesPerDay(calendar: ApprovalBusinessCalendar): number {
+  return Math.max((calendar.businessDayEndHour - calendar.businessDayStartHour) * 60, 60);
+}
+
+function getCalendarDate(dayIndex: number): Date {
+  const date = new Date(Date.UTC(2026, 0, 1));
+  date.setUTCDate(date.getUTCDate() + dayIndex);
+  return date;
+}
+
+function toIsoDate(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function isBusinessDay(dayIndex: number, calendar: ApprovalBusinessCalendar): boolean {
+  const date = getCalendarDate(dayIndex);
+  const weekday = date.getUTCDay();
+  const isoDate = toIsoDate(date);
+  return calendar.workingDays.includes(weekday) && !calendar.holidayDates.includes(isoDate);
+}
+
+function businessToAbsoluteMinute(businessMinute: number, calendar: ApprovalBusinessCalendar): number {
+  const safeBusinessMinute = Math.max(businessMinute, 0);
+  const minutesPerDay = getBusinessMinutesPerDay(calendar);
+  let remaining = safeBusinessMinute;
+  let dayIndex = 0;
+
+  while (true) {
+    if (!isBusinessDay(dayIndex, calendar)) {
+      dayIndex += 1;
+      continue;
+    }
+
+    if (remaining <= minutesPerDay) {
+      return dayIndex * 1440 + calendar.businessDayStartHour * 60 + remaining;
+    }
+
+    remaining -= minutesPerDay;
+    dayIndex += 1;
+  }
+}
+
+function toDayOffset(absoluteMinute: number): number {
+  return Math.floor(absoluteMinute / 1440);
 }
 
 export function simulateApprovalChain(
@@ -228,8 +312,10 @@ export function simulateApprovalChain(
 export function simulateApprovalTimeline(
   stages: ApprovalChainStageDraft[],
   signals: ApprovalSimulationSignals,
+  calendarInput?: ApprovalBusinessCalendar,
 ): ApprovalTimelineEntry[] {
   const preview = simulateApprovalChain(stages, signals);
+  const calendar = normalizeCalendar(calendarInput);
   const laneEndMinutes: Partial<Record<ApprovalLaneKey, number>> = {};
   let mainClock = 0;
 
@@ -242,6 +328,10 @@ export function simulateApprovalTimeline(
     const slaDeadlineMinute = baseStart + Math.max(stage.slaMinutes, 1);
     const escalationMinute = baseStart + Math.max(stage.escalationAfterMinutes, 1);
     const endMinute = baseStart + durationMinute;
+    const startAbsoluteMinute = businessToAbsoluteMinute(baseStart, calendar);
+    const slaAbsoluteMinute = businessToAbsoluteMinute(slaDeadlineMinute, calendar);
+    const escalationAbsoluteMinute = businessToAbsoluteMinute(escalationMinute, calendar);
+    const endAbsoluteMinute = businessToAbsoluteMinute(endMinute, calendar);
 
     if (entry.reachable) {
       if (stage.stageMode === "parallel") {
@@ -254,13 +344,21 @@ export function simulateApprovalTimeline(
 
     return {
       ...entry,
-      startMinute: baseStart,
-      slaDeadlineMinute,
-      escalationMinute,
-      endMinute,
+      startMinute: startAbsoluteMinute,
+      slaDeadlineMinute: slaAbsoluteMinute,
+      escalationMinute: escalationAbsoluteMinute,
+      endMinute: endAbsoluteMinute,
       durationMinute,
+      startBusinessMinute: baseStart,
+      slaDeadlineBusinessMinute: slaDeadlineMinute,
+      escalationBusinessMinute: escalationMinute,
+      endBusinessMinute: endMinute,
+      startDayOffset: toDayOffset(startAbsoluteMinute),
+      slaDeadlineDayOffset: toDayOffset(slaAbsoluteMinute),
+      escalationDayOffset: toDayOffset(escalationAbsoluteMinute),
+      endDayOffset: toDayOffset(endAbsoluteMinute),
       reason: entry.reachable
-        ? `${entry.reason} · SLA bis T+${slaDeadlineMinute} Min, Eskalation ab T+${escalationMinute} Min.`
+        ? `${entry.reason} · SLA bis Geschäftstag ${toDayOffset(slaAbsoluteMinute)} bei T+${slaDeadlineMinute} Arbeitsmin, Eskalation ab Geschäftstag ${toDayOffset(escalationAbsoluteMinute)} bei T+${escalationMinute} Arbeitsmin.`
         : `${entry.reason} · Kein Zeitfenster aktiv, weil dieser Pfad nicht erreicht wird.`,
     };
   });

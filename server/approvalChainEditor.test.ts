@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  createDefaultBusinessCalendar,
   createDefaultSimulationSignals,
   createEmptyApprovalStageDraft,
   moveStageToDropZone,
@@ -147,8 +148,9 @@ describe("approval chain drag-and-drop helpers", () => {
     expect(preview[3]).toMatchObject({ reachable: false, branchMatched: false });
   });
 
-  it("builds a timeline with SLA and escalation timestamps", () => {
+  it("builds a business-calendar-aware timeline with SLA and escalation timestamps", () => {
     const signals = createDefaultSimulationSignals();
+    const calendar = createDefaultBusinessCalendar();
     const stages = [
       {
         ...createEmptyApprovalStageDraft(),
@@ -178,10 +180,113 @@ describe("approval chain drag-and-drop helpers", () => {
       },
     ];
 
-    const timeline = simulateApprovalTimeline(stages, signals);
+    const timeline = simulateApprovalTimeline(stages, signals, calendar);
 
-    expect(timeline[0]).toMatchObject({ startMinute: 0, slaDeadlineMinute: 30, escalationMinute: 45, endMinute: 45 });
-    expect(timeline[1]).toMatchObject({ startMinute: 45, slaDeadlineMinute: 65, escalationMinute: 80, endMinute: 80 });
-    expect(timeline[2]).toMatchObject({ reachable: true, startMinute: 80, slaDeadlineMinute: 95, escalationMinute: 105, endMinute: 105 });
+    expect(timeline[0]).toMatchObject({
+      startMinute: 1980,
+      slaDeadlineMinute: 2010,
+      escalationMinute: 2025,
+      endMinute: 2025,
+      startBusinessMinute: 0,
+      slaDeadlineBusinessMinute: 30,
+      escalationBusinessMinute: 45,
+      endBusinessMinute: 45,
+      startDayOffset: 1,
+      slaDeadlineDayOffset: 1,
+      escalationDayOffset: 1,
+      endDayOffset: 1,
+    });
+    expect(timeline[1]).toMatchObject({
+      startMinute: 2025,
+      slaDeadlineMinute: 2045,
+      escalationMinute: 2060,
+      endMinute: 2060,
+      startBusinessMinute: 45,
+      slaDeadlineBusinessMinute: 65,
+      escalationBusinessMinute: 80,
+      endBusinessMinute: 80,
+      startDayOffset: 1,
+      slaDeadlineDayOffset: 1,
+      escalationDayOffset: 1,
+      endDayOffset: 1,
+    });
+    expect(timeline[2]).toMatchObject({
+      reachable: true,
+      startMinute: 2060,
+      slaDeadlineMinute: 2075,
+      escalationMinute: 2085,
+      endMinute: 2085,
+      startBusinessMinute: 80,
+      slaDeadlineBusinessMinute: 95,
+      escalationBusinessMinute: 105,
+      endBusinessMinute: 105,
+      startDayOffset: 1,
+      slaDeadlineDayOffset: 1,
+      escalationDayOffset: 1,
+      endDayOffset: 1,
+    });
+  });
+
+  it("skips weekends when business minutes span multiple workdays", () => {
+    const signals = createDefaultSimulationSignals();
+    const calendar = createDefaultBusinessCalendar();
+    const stages = [
+      {
+        ...createEmptyApprovalStageDraft(),
+        stageName: "Long Review",
+        slaMinutes: 500,
+        escalationAfterMinutes: 540,
+      },
+    ];
+
+    const timeline = simulateApprovalTimeline(stages, signals, calendar);
+
+    expect(timeline[0]).toMatchObject({
+      startMinute: 1980,
+      slaDeadlineMinute: 6320,
+      escalationMinute: 6360,
+      endMinute: 6360,
+      startDayOffset: 1,
+      slaDeadlineDayOffset: 4,
+      escalationDayOffset: 4,
+      endDayOffset: 4,
+      startBusinessMinute: 0,
+      slaDeadlineBusinessMinute: 500,
+      escalationBusinessMinute: 540,
+      endBusinessMinute: 540,
+    });
+  });
+
+  it("respects configured holidays in the business calendar", () => {
+    const signals = createDefaultSimulationSignals();
+    const calendar = {
+      ...createDefaultBusinessCalendar(),
+      holidayDates: ["2026-01-01", "2026-01-05"],
+    };
+    const stages = [
+      {
+        ...createEmptyApprovalStageDraft(),
+        stageName: "Holiday Gate",
+        slaMinutes: 500,
+        escalationAfterMinutes: 540,
+      },
+    ];
+
+    const timeline = simulateApprovalTimeline(stages, signals, calendar);
+
+    expect(timeline[0]).toMatchObject({
+      startMinute: 1980,
+      slaDeadlineMinute: 7760,
+      escalationMinute: 7800,
+      endMinute: 7800,
+      startDayOffset: 1,
+      slaDeadlineDayOffset: 5,
+      escalationDayOffset: 5,
+      endDayOffset: 5,
+      startBusinessMinute: 0,
+      slaDeadlineBusinessMinute: 500,
+      escalationBusinessMinute: 540,
+      endBusinessMinute: 540,
+    });
   });
 });

@@ -33,3 +33,4 @@
 - [x] Parallele Sammel-Gates mit Quorum-Regeln implementieren, damit Freigaben auf Mehrheits-, Mindest- oder Rollen-Quoren warten können
 - [x] Grafische Simulationsansicht implementieren, die vor dem Speichern den resultierenden Genehmigungspfad vorausschauend visualisiert
 - [x] Zeitbasierte Simulation implementieren, die SLA-Verlauf, Eskalationszeitpunkte und zeitliche Übergänge im Genehmigungspfad visualisiert
+- [x] SLA-Kalenderfunktion implementieren, die Geschäftszeiten und Feiertage in der zeitbasierten Simulation berücksichtigt
