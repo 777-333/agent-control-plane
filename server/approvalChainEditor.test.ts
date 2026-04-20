@@ -5,6 +5,7 @@ import {
   moveStageToDropZone,
   reorderApprovalChainStages,
   simulateApprovalChain,
+  simulateApprovalTimeline,
 } from "../client/src/lib/approval-chain-editor";
 
 describe("approval chain drag-and-drop helpers", () => {
@@ -144,5 +145,43 @@ describe("approval chain drag-and-drop helpers", () => {
     expect(preview[1]).toMatchObject({ reachable: true, quorumLabel: "Mehrheit (2)" });
     expect(preview[2]).toMatchObject({ reachable: true, branchMatched: true });
     expect(preview[3]).toMatchObject({ reachable: false, branchMatched: false });
+  });
+
+  it("builds a timeline with SLA and escalation timestamps", () => {
+    const signals = createDefaultSimulationSignals();
+    const stages = [
+      {
+        ...createEmptyApprovalStageDraft(),
+        stageName: "Finance Review",
+        slaMinutes: 30,
+        escalationAfterMinutes: 45,
+      },
+      {
+        ...createEmptyApprovalStageDraft(),
+        stageName: "Parallel Security",
+        stageMode: "parallel" as const,
+        laneKey: "parallel-a" as const,
+        slaMinutes: 20,
+        escalationAfterMinutes: 35,
+      },
+      {
+        ...createEmptyApprovalStageDraft(),
+        stageName: "Executive Escalation",
+        stageMode: "branch" as const,
+        laneKey: "branch-a" as const,
+        branchSourceStageOrder: 2,
+        branchField: "riskLevel" as const,
+        branchOperator: "equals" as const,
+        branchValue: "critical",
+        slaMinutes: 15,
+        escalationAfterMinutes: 25,
+      },
+    ];
+
+    const timeline = simulateApprovalTimeline(stages, signals);
+
+    expect(timeline[0]).toMatchObject({ startMinute: 0, slaDeadlineMinute: 30, escalationMinute: 45, endMinute: 45 });
+    expect(timeline[1]).toMatchObject({ startMinute: 45, slaDeadlineMinute: 65, escalationMinute: 80, endMinute: 80 });
+    expect(timeline[2]).toMatchObject({ reachable: true, startMinute: 80, slaDeadlineMinute: 95, escalationMinute: 105, endMinute: 105 });
   });
 });

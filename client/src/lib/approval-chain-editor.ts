@@ -127,6 +127,14 @@ export type ApprovalSimulationEntry = {
   quorumLabel: string | null;
 };
 
+export type ApprovalTimelineEntry = ApprovalSimulationEntry & {
+  startMinute: number;
+  slaDeadlineMinute: number;
+  escalationMinute: number;
+  endMinute: number;
+  durationMinute: number;
+};
+
 export function createDefaultSimulationSignals(): ApprovalSimulationSignals {
   return {
     riskLevel: "critical",
@@ -213,6 +221,47 @@ export function simulateApprovalChain(
       branchMatched,
       reason,
       quorumLabel: describeQuorum(stage),
+    };
+  });
+}
+
+export function simulateApprovalTimeline(
+  stages: ApprovalChainStageDraft[],
+  signals: ApprovalSimulationSignals,
+): ApprovalTimelineEntry[] {
+  const preview = simulateApprovalChain(stages, signals);
+  const laneEndMinutes: Partial<Record<ApprovalLaneKey, number>> = {};
+  let mainClock = 0;
+
+  return preview.map((entry, index) => {
+    const stage = stages[index];
+    const baseStart = stage.stageMode === "parallel"
+      ? (laneEndMinutes[stage.laneKey] ?? mainClock)
+      : mainClock;
+    const durationMinute = Math.max(stage.slaMinutes, stage.escalationAfterMinutes, 1);
+    const slaDeadlineMinute = baseStart + Math.max(stage.slaMinutes, 1);
+    const escalationMinute = baseStart + Math.max(stage.escalationAfterMinutes, 1);
+    const endMinute = baseStart + durationMinute;
+
+    if (entry.reachable) {
+      if (stage.stageMode === "parallel") {
+        laneEndMinutes[stage.laneKey] = endMinute;
+        mainClock = Math.max(mainClock, endMinute);
+      } else {
+        mainClock = endMinute;
+      }
+    }
+
+    return {
+      ...entry,
+      startMinute: baseStart,
+      slaDeadlineMinute,
+      escalationMinute,
+      endMinute,
+      durationMinute,
+      reason: entry.reachable
+        ? `${entry.reason} · SLA bis T+${slaDeadlineMinute} Min, Eskalation ab T+${escalationMinute} Min.`
+        : `${entry.reason} · Kein Zeitfenster aktiv, weil dieser Pfad nicht erreicht wird.`,
     };
   });
 }

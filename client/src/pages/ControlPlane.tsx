@@ -1,7 +1,7 @@
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { createDefaultSimulationSignals, createEmptyApprovalStageDraft, getLaneLabel, moveStageToDropZone, reorderApprovalChainStages, simulateApprovalChain, type ApprovalChainStageDraft } from "@/lib/approval-chain-editor";
+import { createDefaultSimulationSignals, createEmptyApprovalStageDraft, getLaneLabel, moveStageToDropZone, reorderApprovalChainStages, simulateApprovalChain, simulateApprovalTimeline, type ApprovalChainStageDraft } from "@/lib/approval-chain-editor";
 import { Loader2, Shield, Activity, BellRing, BrainCircuit, FileSearch, Blocks, UserCog, Fingerprint, ChartNoAxesCombined, Waypoints, Sparkles, GripVertical } from "lucide-react";
 import { toast } from "sonner";
 import { useMemo, useState } from "react";
@@ -624,6 +624,7 @@ export function ApprovalsPage() {
   const [draggedStageIndex, setDraggedStageIndex] = useState<number | null>(null);
   const [dropStageIndex, setDropStageIndex] = useState<number | null>(null);
   const [simulationSignals, setSimulationSignals] = useState(createDefaultSimulationSignals);
+  const [simulationMinute, setSimulationMinute] = useState(0);
 
   const resolveMutation = trpc.approvals.resolve.useMutation({
     onSuccess: async () => {
@@ -699,6 +700,8 @@ export function ApprovalsPage() {
   };
 
   const simulationPreview = useMemo(() => simulateApprovalChain(chainForm.stages, simulationSignals), [chainForm.stages, simulationSignals]);
+  const timelinePreview = useMemo(() => simulateApprovalTimeline(chainForm.stages, simulationSignals), [chainForm.stages, simulationSignals]);
+  const simulationDuration = useMemo(() => timelinePreview.reduce((max, stage) => Math.max(max, stage.endMinute), 0), [timelinePreview]);
 
   const saveChain = () => {
     const payload = {
@@ -1036,6 +1039,65 @@ export function ApprovalsPage() {
                       />
                     </label>
                   ))}
+                </div>
+                <div className="mt-4 rounded-2xl border border-sky-200 bg-sky-50/70 p-4">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-950">Zeitfenster-Simulation</p>
+                      <p className="mt-1 text-sm leading-6 text-slate-600">Bewege den Zeitpunkt, um SLA-Fristen, Eskalationen und aktive Stufen entlang des geplanten Pfads zu prüfen.</p>
+                    </div>
+                    <ModuleBadge label={`T+${simulationMinute} Min`} tone="success" />
+                  </div>
+                  <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto] md:items-center">
+                    <input type="range" min={0} max={Math.max(simulationDuration, 1)} value={Math.min(simulationMinute, Math.max(simulationDuration, 1))} onChange={event => setSimulationMinute(Number(event.target.value))} className="w-full accent-slate-950" />
+                    <input type="number" min={0} max={Math.max(simulationDuration, 1)} value={simulationMinute} onChange={event => setSimulationMinute(Number(event.target.value) || 0)} className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm md:w-28" />
+                  </div>
+                  <div className="mt-4 space-y-3">
+                    {timelinePreview.map(stage => {
+                      const total = Math.max(simulationDuration, 1);
+                      const left = `${(stage.startMinute / total) * 100}%`;
+                      const width = `${(Math.max(stage.endMinute - stage.startMinute, 1) / total) * 100}%`;
+                      const slaLeft = `${(stage.slaDeadlineMinute / total) * 100}%`;
+                      const escalationLeft = `${(stage.escalationMinute / total) * 100}%`;
+                      const isCurrent = stage.reachable && simulationMinute >= stage.startMinute && simulationMinute <= stage.endMinute;
+                      const afterEscalation = stage.reachable && simulationMinute >= stage.escalationMinute;
+                      const afterSla = stage.reachable && simulationMinute >= stage.slaDeadlineMinute;
+
+                      return (
+                        <div key={`${stage.order}-${stage.stageName}-timeline`} className={`rounded-2xl border px-4 py-4 ${stage.reachable ? "border-slate-200 bg-white" : "border-slate-200/80 bg-slate-100/70"}`}>
+                          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                            <div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="text-sm font-semibold text-slate-950">{stage.order}. {stage.stageName}</p>
+                                <ModuleBadge label={getLaneLabel(stage.laneKey)} tone={stage.stageMode === "branch" ? "warning" : stage.stageMode === "parallel" ? "success" : "neutral"} />
+                                <ModuleBadge label={stage.reachable ? (isCurrent ? "Jetzt aktiv" : "Geplant") : "Nicht aktiv"} tone={stage.reachable ? (isCurrent ? "success" : "neutral") : "neutral"} />
+                              </div>
+                              <p className="mt-2 text-sm leading-6 text-slate-600">{stage.reason}</p>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {stage.quorumLabel ? <ModuleBadge label={stage.quorumLabel} tone="success" /> : null}
+                              {afterSla ? <ModuleBadge label="SLA erreicht" tone="warning" /> : null}
+                              {afterEscalation ? <ModuleBadge label="Eskalation fällig" tone="danger" /> : null}
+                            </div>
+                          </div>
+                          <div className="mt-4">
+                            <div className="relative h-3 rounded-full bg-slate-200">
+                              <div className={`absolute top-0 h-3 rounded-full ${stage.reachable ? "bg-slate-950" : "bg-slate-300"}`} style={{ left, width }} />
+                              <div className="absolute top-[-4px] h-5 w-[2px] bg-amber-500" style={{ left: slaLeft }} />
+                              <div className="absolute top-[-4px] h-5 w-[2px] bg-rose-500" style={{ left: escalationLeft }} />
+                              <div className="absolute top-[-6px] h-6 w-[2px] bg-sky-600" style={{ left: `${(Math.min(simulationMinute, total) / total) * 100}%` }} />
+                            </div>
+                            <div className="mt-3 grid gap-2 text-xs text-slate-500 md:grid-cols-4">
+                              <span>Start: T+{stage.startMinute}</span>
+                              <span>SLA: T+{stage.slaDeadlineMinute}</span>
+                              <span>Eskalation: T+{stage.escalationMinute}</span>
+                              <span>Ende: T+{stage.endMinute}</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
                 <div className="mt-5 grid gap-3">
                   {simulationPreview.map(stage => (
