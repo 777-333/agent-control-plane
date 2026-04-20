@@ -1,7 +1,7 @@
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { createEmptyApprovalStageDraft, reorderApprovalChainStages, type ApprovalChainStageDraft } from "@/lib/approval-chain-editor";
+import { createEmptyApprovalStageDraft, getLaneLabel, moveStageToDropZone, reorderApprovalChainStages, type ApprovalChainStageDraft } from "@/lib/approval-chain-editor";
 import { Loader2, Shield, Activity, BellRing, BrainCircuit, FileSearch, Blocks, UserCog, Fingerprint, ChartNoAxesCombined, Waypoints, Sparkles, GripVertical } from "lucide-react";
 import { toast } from "sonner";
 import { useMemo, useState } from "react";
@@ -674,6 +674,12 @@ export function ApprovalsPage() {
         stageName: stage.stageName,
         requiredRole: stage.requiredRole,
         defaultApproverLabel: stage.defaultApproverLabel,
+        stageMode: stage.stageMode ?? "serial",
+        laneKey: (stage.laneKey as "main" | "parallel-a" | "parallel-b" | "branch-a" | "branch-b" | undefined) ?? "main",
+        branchSourceStageOrder: stage.branchSourceStageOrder ?? null,
+        branchLabel: stage.branchLabel ?? "",
+        branchOperator: stage.branchOperator ?? "always",
+        branchValue: stage.branchValue ?? "",
         slaMinutes: stage.slaMinutes,
         escalationAfterMinutes: stage.escalationAfterMinutes,
         escalationTargetLabel: stage.escalationTargetLabel,
@@ -849,7 +855,40 @@ export function ApprovalsPage() {
               </select>
 
               <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/70 px-4 py-3 text-xs leading-6 text-slate-600">
-                Ziehe die Stufen am Handle nach oben oder unten, um die Reihenfolge der Genehmigungskette visuell anzupassen. Die gespeicherte Reihenfolge wird direkt als Freigabepfad verwendet.
+                Ziehe Stufen weiterhin vertikal für die Reihenfolge. Zusätzliche Drop-Zonen ordnen eine Stufe jetzt auch einem linearen Pfad, parallelen Reviews oder bedingten Verzweigungen zu.
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                {[
+                  { title: "Linearer Pfad", description: "Standard-Reihenfolge für sequenzielle Freigaben.", stageMode: "serial" as const, laneKey: "main" as const },
+                  { title: "Paralleler Pfad A", description: "Zusätzliche Freigabe parallel zum Hauptpfad.", stageMode: "parallel" as const, laneKey: "parallel-a" as const },
+                  { title: "Paralleler Pfad B", description: "Zweiter paralleler Review-Strang.", stageMode: "parallel" as const, laneKey: "parallel-b" as const },
+                  { title: "Bedingte Verzweigung", description: "Pfad für risiko- oder toolabhängige Sonderfreigaben.", stageMode: "branch" as const, laneKey: "branch-a" as const },
+                ].map(zone => (
+                  <div
+                    key={zone.title}
+                    onDragOver={event => event.preventDefault()}
+                    onDrop={event => {
+                      event.preventDefault();
+                      if (draggedStageIndex === null) return;
+                      setChainForm(current => ({
+                        ...current,
+                        stages: moveStageToDropZone(current.stages, draggedStageIndex, {
+                          stageMode: zone.stageMode,
+                          laneKey: zone.laneKey,
+                          branchSourceStageOrder: zone.stageMode === "branch" ? 1 : null,
+                          branchLabel: zone.stageMode === "branch" ? "Nur bei Bedingung" : "",
+                        }),
+                      }));
+                      setDraggedStageIndex(null);
+                      setDropStageIndex(null);
+                    }}
+                    className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-4 shadow-sm transition hover:border-slate-950 hover:bg-slate-50"
+                  >
+                    <p className="text-sm font-semibold text-slate-950">{zone.title}</p>
+                    <p className="mt-2 text-xs leading-5 text-slate-500">{zone.description}</p>
+                  </div>
+                ))}
               </div>
 
               <div className="space-y-4">
@@ -889,7 +928,10 @@ export function ApprovalsPage() {
                           <GripVertical className="h-4 w-4" />
                         </div>
                         <div>
-                          <p className="text-sm font-semibold text-slate-950">Stufe {index + 1}</p>
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-semibold text-slate-950">Stufe {index + 1}</p>
+                            <ModuleBadge label={getLaneLabel(stage.laneKey)} tone={stage.stageMode === "branch" ? "warning" : stage.stageMode === "parallel" ? "success" : "neutral"} />
+                          </div>
                           <p className="text-xs text-slate-500">Drag-and-drop aktiviert</p>
                         </div>
                       </div>
@@ -900,7 +942,21 @@ export function ApprovalsPage() {
                       ) : null}
                     </div>
                     <div className="mt-4 grid gap-3">
-                      <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Stage Name" value={stage.stageName} onChange={e => updateStage(index, item => ({ ...item, stageName: e.target.value }))} />
+                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                        <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm md:col-span-2" placeholder="Stage Name" value={stage.stageName} onChange={e => updateStage(index, item => ({ ...item, stageName: e.target.value }))} />
+                        <select className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm" value={stage.stageMode} onChange={e => updateStage(index, item => ({ ...item, stageMode: e.target.value as ApprovalChainStageDraft["stageMode"] }))}>
+                          <option value="serial">serial</option>
+                          <option value="parallel">parallel</option>
+                          <option value="branch">branch</option>
+                        </select>
+                        <select className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm" value={stage.laneKey} onChange={e => updateStage(index, item => ({ ...item, laneKey: e.target.value as ApprovalChainStageDraft["laneKey"] }))}>
+                          <option value="main">main</option>
+                          <option value="parallel-a">parallel-a</option>
+                          <option value="parallel-b">parallel-b</option>
+                          <option value="branch-a">branch-a</option>
+                          <option value="branch-b">branch-b</option>
+                        </select>
+                      </div>
                       <div className="grid gap-3 md:grid-cols-2">
                         <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Required Role" value={stage.requiredRole} onChange={e => updateStage(index, item => ({ ...item, requiredRole: e.target.value }))} />
                         <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Standard Owner" value={stage.defaultApproverLabel} onChange={e => updateStage(index, item => ({ ...item, defaultApproverLabel: e.target.value }))} />
@@ -910,6 +966,20 @@ export function ApprovalsPage() {
                         <input type="number" className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Eskalation nach Minuten" value={stage.escalationAfterMinutes} onChange={e => updateStage(index, item => ({ ...item, escalationAfterMinutes: Number(e.target.value) }))} />
                       </div>
                       <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Eskalationsziel" value={stage.escalationTargetLabel} onChange={e => updateStage(index, item => ({ ...item, escalationTargetLabel: e.target.value }))} />
+                      {stage.stageMode === "branch" ? (
+                        <div className="grid gap-3 rounded-2xl border border-amber-200 bg-amber-50/70 p-4 md:grid-cols-2 xl:grid-cols-4">
+                          <input type="number" className="h-11 w-full rounded-2xl border border-amber-200 bg-white px-4 text-sm" placeholder="Quellstufe" value={stage.branchSourceStageOrder ?? 1} onChange={e => updateStage(index, item => ({ ...item, branchSourceStageOrder: Number(e.target.value) }))} />
+                          <input className="h-11 w-full rounded-2xl border border-amber-200 bg-white px-4 text-sm" placeholder="Branch Label" value={stage.branchLabel} onChange={e => updateStage(index, item => ({ ...item, branchLabel: e.target.value }))} />
+                          <select className="h-11 w-full rounded-2xl border border-amber-200 bg-white px-4 text-sm" value={stage.branchOperator} onChange={e => updateStage(index, item => ({ ...item, branchOperator: e.target.value as ApprovalChainStageDraft["branchOperator"] }))}>
+                            <option value="always">always</option>
+                            <option value="equals">equals</option>
+                            <option value="contains">contains</option>
+                            <option value="greater_than">greater_than</option>
+                            <option value="less_than">less_than</option>
+                          </select>
+                          <input className="h-11 w-full rounded-2xl border border-amber-200 bg-white px-4 text-sm" placeholder="Vergleichswert" value={stage.branchValue} onChange={e => updateStage(index, item => ({ ...item, branchValue: e.target.value }))} />
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 ))}

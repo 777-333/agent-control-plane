@@ -25,3 +25,7 @@
 - [x] Mehrstufige Genehmigungsketten mit Eskalationsregeln für komplexere Arbeitsabläufe implementieren
 - [x] Persistente Genehmigungsketten-Editoren implementieren, damit Benutzer eigene Freigabemuster erstellen, bearbeiten, speichern und auswählen können
 - [x] Visuellen Genehmigungsketten-Editor mit Drag-and-Drop implementieren, damit Benutzer Freigabestufen intuitiv erstellen, umordnen und speichern können
+- [x] Drop-Zonen für parallele Freigabestufen und bedingte Verzweigungen im Workflow-Editor implementieren, damit komplexe Genehmigungspfade visuell modelliert und gespeichert werden können
+- [x] Persistente Ausführung von Parallelpfaden und bedingten Verzweigungen im Approval-Workflow implementieren und durch End-to-End-Router-Tests absichern
+- [x] Neue Drizzle-Migration für Parallel-Lanes und Verzweigungsfelder erfolgreich anwenden und den synchronisierten Datenbankzustand dokumentieren
+- [x] Router- und Datenlogik so ergänzen, dass gespeicherte Parallel- und Branching-Konfigurationen auf reale Approval-Vorgänge angewendet und erneut geladen werden können

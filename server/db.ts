@@ -129,6 +129,12 @@ type ApprovalStageRecord = {
   requiredRole: string;
   ownerLabel: string;
   status: ApprovalStageStatus;
+  stageMode?: "serial" | "parallel" | "branch";
+  laneKey?: string;
+  branchSourceStageOrder?: number | null;
+  branchLabel?: string;
+  branchOperator?: "always" | "equals" | "contains" | "greater_than" | "less_than";
+  branchValue?: string;
   startedAt?: number;
   resolvedAt?: number;
   slaMinutes: number;
@@ -144,6 +150,12 @@ type ApprovalChainStageTemplateRecord = {
   stageName: string;
   requiredRole: string;
   defaultApproverLabel: string;
+  stageMode?: "serial" | "parallel" | "branch";
+  laneKey?: string;
+  branchSourceStageOrder?: number | null;
+  branchLabel?: string;
+  branchOperator?: "always" | "equals" | "contains" | "greater_than" | "less_than";
+  branchValue?: string;
   slaMinutes: number;
   escalationAfterMinutes: number;
   escalationTargetLabel: string;
@@ -657,6 +669,12 @@ async function ensureApprovalChainSeeded() {
           stageName: stage.stageName,
           requiredRole: stage.requiredRole,
           defaultApproverLabel: stage.defaultApproverLabel,
+          stageMode: stage.stageMode ?? "serial",
+          laneKey: stage.laneKey ?? "main",
+          branchSourceStageOrder: stage.branchSourceStageOrder ?? null,
+          branchLabel: stage.branchLabel ?? null,
+          branchOperator: stage.branchOperator ?? "always",
+          branchValue: stage.branchValue ?? null,
           slaMinutes: stage.slaMinutes,
           escalationAfterMinutes: stage.escalationAfterMinutes,
           escalationTargetLabel: stage.escalationTargetLabel,
@@ -670,7 +688,71 @@ async function ensureApprovalChainSeeded() {
 }
 
 function getCurrentApprovalStage(approval: ApprovalRecord) {
-  return approval.stages.find(stage => stage.order === approval.currentStageOrder);
+  return approval.stages.find(stage => stage.order === approval.currentStageOrder && (stage.status === "pending" || stage.status === "escalated"));
+}
+
+function evaluateBranchCondition(stage: ApprovalStageRecord, contextText?: string) {
+  if (stage.stageMode !== "branch") return false;
+  const left = (contextText ?? "").trim().toLowerCase();
+  const right = (stage.branchValue ?? "").trim().toLowerCase();
+
+  switch (stage.branchOperator ?? "always") {
+    case "always":
+      return true;
+    case "equals":
+      return left.length > 0 && right.length > 0 && left === right;
+    case "contains":
+      return left.length > 0 && right.length > 0 && left.includes(right);
+    case "greater_than": {
+      const leftNumber = Number(left);
+      const rightNumber = Number(right);
+      return Number.isFinite(leftNumber) && Number.isFinite(rightNumber) && leftNumber > rightNumber;
+    }
+    case "less_than": {
+      const leftNumber = Number(left);
+      const rightNumber = Number(right);
+      return Number.isFinite(leftNumber) && Number.isFinite(rightNumber) && leftNumber < rightNumber;
+    }
+    default:
+      return false;
+  }
+}
+
+function activateStages(stages: ApprovalStageRecord[]) {
+  const timestamp = Date.now();
+  stages.forEach(stage => {
+    if (stage.status === "waiting") {
+      stage.status = "pending";
+      stage.startedAt = timestamp;
+    }
+  });
+}
+
+function getNextStagesAfterApproval(approval: ApprovalRecord, approvedStage: ApprovalStageRecord) {
+  const remaining = approval.stages
+    .filter(stage => stage.status === "waiting")
+    .sort((a, b) => a.order - b.order);
+
+  const activeParallelStages = approval.stages.filter(stage => stage.stageMode === "parallel" && (stage.status === "pending" || stage.status === "escalated"));
+  if (approvedStage.stageMode === "parallel" && activeParallelStages.length > 0) {
+    return [] as ApprovalStageRecord[];
+  }
+
+  const branchStages = remaining.filter(stage => stage.stageMode === "branch" && stage.branchSourceStageOrder === approvedStage.order && evaluateBranchCondition(stage, approvedStage.note));
+  if (branchStages.length > 0) {
+    return branchStages;
+  }
+
+  const nextSequential = remaining.find(stage => stage.order > approvedStage.order && stage.stageMode !== "branch");
+  if (!nextSequential) {
+    return [] as ApprovalStageRecord[];
+  }
+
+  if (nextSequential.stageMode === "parallel") {
+    return remaining.filter(stage => stage.stageMode === "parallel" && stage.order >= nextSequential.order);
+  }
+
+  return [nextSequential];
 }
 
 function addAuditEvent(event: Omit<AuditEventRecord, "id" | "createdAt"> & { createdAt?: number }) {
@@ -855,6 +937,12 @@ export async function listApprovalChains() {
           stageName: stage.stageName,
           requiredRole: stage.requiredRole,
           defaultApproverLabel: stage.defaultApproverLabel,
+          stageMode: stage.stageMode,
+          laneKey: stage.laneKey,
+          branchSourceStageOrder: stage.branchSourceStageOrder,
+          branchLabel: stage.branchLabel,
+          branchOperator: stage.branchOperator,
+          branchValue: stage.branchValue,
           slaMinutes: stage.slaMinutes,
           escalationAfterMinutes: stage.escalationAfterMinutes,
           escalationTargetLabel: stage.escalationTargetLabel,
@@ -871,6 +959,12 @@ export async function createApprovalChainTemplate(input: {
     stageName: string;
     requiredRole: string;
     defaultApproverLabel: string;
+    stageMode: "serial" | "parallel" | "branch";
+    laneKey: string;
+    branchSourceStageOrder?: number | null;
+    branchLabel?: string;
+    branchOperator: "always" | "equals" | "contains" | "greater_than" | "less_than";
+    branchValue?: string;
     slaMinutes: number;
     escalationAfterMinutes: number;
     escalationTargetLabel: string;
@@ -890,7 +984,18 @@ export async function createApprovalChainTemplate(input: {
       stages: input.stages.map((stage, index) => ({
         id: nextApprovalStageTemplateId++,
         stageOrder: index + 1,
-        ...stage,
+        stageName: stage.stageName,
+        requiredRole: stage.requiredRole,
+        defaultApproverLabel: stage.defaultApproverLabel,
+        stageMode: stage.stageMode,
+        laneKey: stage.laneKey,
+        branchSourceStageOrder: stage.branchSourceStageOrder ?? null,
+        branchLabel: stage.branchLabel ?? "",
+        branchOperator: stage.branchOperator,
+        branchValue: stage.branchValue ?? "",
+        slaMinutes: stage.slaMinutes,
+        escalationAfterMinutes: stage.escalationAfterMinutes,
+        escalationTargetLabel: stage.escalationTargetLabel,
       })),
     };
     approvalChainTemplatesData.unshift(chain);
@@ -920,6 +1025,12 @@ export async function createApprovalChainTemplate(input: {
       stageName: stage.stageName,
       requiredRole: stage.requiredRole,
       defaultApproverLabel: stage.defaultApproverLabel,
+      stageMode: stage.stageMode,
+      laneKey: stage.laneKey,
+      branchSourceStageOrder: stage.branchSourceStageOrder ?? null,
+      branchLabel: stage.branchLabel ?? null,
+      branchOperator: stage.branchOperator,
+      branchValue: stage.branchValue ?? null,
       slaMinutes: stage.slaMinutes,
       escalationAfterMinutes: stage.escalationAfterMinutes,
       escalationTargetLabel: stage.escalationTargetLabel,
@@ -944,6 +1055,12 @@ export async function updateApprovalChainTemplate(input: {
     stageName: string;
     requiredRole: string;
     defaultApproverLabel: string;
+    stageMode: "serial" | "parallel" | "branch";
+    laneKey: string;
+    branchSourceStageOrder?: number | null;
+    branchLabel?: string;
+    branchOperator: "always" | "equals" | "contains" | "greater_than" | "less_than";
+    branchValue?: string;
     slaMinutes: number;
     escalationAfterMinutes: number;
     escalationTargetLabel: string;
@@ -967,7 +1084,18 @@ export async function updateApprovalChainTemplate(input: {
       stages: input.stages.map((stage, idx) => ({
         id: nextApprovalStageTemplateId++,
         stageOrder: idx + 1,
-        ...stage,
+        stageName: stage.stageName,
+        requiredRole: stage.requiredRole,
+        defaultApproverLabel: stage.defaultApproverLabel,
+        stageMode: stage.stageMode,
+        laneKey: stage.laneKey,
+        branchSourceStageOrder: stage.branchSourceStageOrder ?? null,
+        branchLabel: stage.branchLabel ?? "",
+        branchOperator: stage.branchOperator,
+        branchValue: stage.branchValue ?? "",
+        slaMinutes: stage.slaMinutes,
+        escalationAfterMinutes: stage.escalationAfterMinutes,
+        escalationTargetLabel: stage.escalationTargetLabel,
       })),
     };
     return cloneApprovalChainTemplate(approvalChainTemplatesData[index]!);
@@ -998,6 +1126,12 @@ export async function updateApprovalChainTemplate(input: {
       stageName: stage.stageName,
       requiredRole: stage.requiredRole,
       defaultApproverLabel: stage.defaultApproverLabel,
+      stageMode: stage.stageMode,
+      laneKey: stage.laneKey,
+      branchSourceStageOrder: stage.branchSourceStageOrder ?? null,
+      branchLabel: stage.branchLabel ?? null,
+      branchOperator: stage.branchOperator,
+      branchValue: stage.branchValue ?? null,
       slaMinutes: stage.slaMinutes,
       escalationAfterMinutes: stage.escalationAfterMinutes,
       escalationTargetLabel: stage.escalationTargetLabel,
@@ -1042,6 +1176,12 @@ export async function applyApprovalChainToApproval(input: { approvalId: number; 
     requiredRole: stage.requiredRole,
     ownerLabel: stage.defaultApproverLabel,
     status: index === 0 ? "pending" : "waiting",
+    stageMode: stage.stageMode,
+    laneKey: stage.laneKey,
+    branchSourceStageOrder: stage.branchSourceStageOrder ?? null,
+    branchLabel: stage.branchLabel ?? "",
+    branchOperator: stage.branchOperator,
+    branchValue: stage.branchValue ?? "",
     startedAt: index === 0 ? Date.now() : undefined,
     slaMinutes: stage.slaMinutes,
     escalationAfterMinutes: stage.escalationAfterMinutes,
@@ -1100,12 +1240,11 @@ export async function resolveApprovalStage(input: { approvalId: number; decision
   }
 
   stage.status = "approved";
-  const nextStage = approval.stages.find(item => item.order === stage.order + 1);
+  const nextStages = getNextStagesAfterApproval(approval, stage);
 
-  if (nextStage) {
-    nextStage.status = "pending";
-    nextStage.startedAt = Date.now();
-    approval.currentStageOrder = nextStage.order;
+  if (nextStages.length > 0) {
+    activateStages(nextStages);
+    approval.currentStageOrder = Math.min(...nextStages.map(item => item.order));
     approval.escalationStatus = "pending";
 
     addAuditEvent({
@@ -1113,27 +1252,51 @@ export async function resolveApprovalStage(input: { approvalId: number; decision
       agentName: approval.agentName,
       severity: "info",
       category: "Approval Workflow",
-      title: "Nächste Freigabestufe aktiviert",
-      detail: `Nach Freigabe durch ${input.approver} wurde die Stufe \"${nextStage.name}\" für \"${approval.title}\" aktiviert.`,
+      title: nextStages.length > 1 ? "Parallele Freigabestufen aktiviert" : "Nächste Freigabestufe aktiviert",
+      detail: nextStages.length > 1
+        ? `Nach Freigabe durch ${input.approver} wurden ${nextStages.length} Folgepfade für "${approval.title}" aktiviert.`
+        : `Nach Freigabe durch ${input.approver} wurde die Stufe "${nextStages[0]!.name}" für "${approval.title}" aktiviert.`,
       actorType: "user",
       actorRef: input.approver,
     });
   } else {
-    approval.status = "approved";
-    approval.approver = input.approver;
-    approval.escalationStatus = "resolved";
+    const stillActiveStages = approval.stages
+      .filter(item => item.status === "pending" || item.status === "escalated")
+      .sort((a, b) => a.order - b.order);
 
-    addAuditEvent({
-      agentId: approval.agentId,
-      agentName: approval.agentName,
-      severity: "info",
-      category: "Approval Workflow",
-      title: "Freigabekette abgeschlossen",
-      detail: `Die Aktion \"${approval.title}\" wurde nach Abschluss aller Stufen durch ${input.approver} vollständig freigegeben.`,
-      actorType: "user",
-      actorRef: input.approver,
-    });
+    if (stillActiveStages.length > 0) {
+      approval.status = "pending";
+      approval.currentStageOrder = stillActiveStages[0]!.order;
+      approval.escalationStatus = "pending";
+
+      addAuditEvent({
+        agentId: approval.agentId,
+        agentName: approval.agentName,
+        severity: "info",
+        category: "Approval Workflow",
+        title: "Parallele Freigabestufen laufen weiter",
+        detail: `Nach Freigabe durch ${input.approver} bleiben weitere aktive Parallelpfade für "${approval.title}" offen.`,
+        actorType: "user",
+        actorRef: input.approver,
+      });
+    } else {
+      approval.status = "approved";
+      approval.approver = input.approver;
+      approval.escalationStatus = "resolved";
+
+      addAuditEvent({
+        agentId: approval.agentId,
+        agentName: approval.agentName,
+        severity: "info",
+        category: "Approval Workflow",
+        title: "Freigabekette abgeschlossen",
+        detail: `Die Aktion "${approval.title}" wurde nach Abschluss aller Stufen durch ${input.approver} vollständig freigegeben.`,
+        actorType: "user",
+        actorRef: input.approver,
+      });
+    }
   }
+
 
   return approval;
 }

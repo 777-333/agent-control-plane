@@ -109,6 +109,12 @@ describe("control plane router", () => {
           stageName: "SOC Triage",
           requiredRole: "approver",
           defaultApproverLabel: "SOC Lead",
+          stageMode: "serial",
+          laneKey: "main",
+          branchSourceStageOrder: null,
+          branchLabel: "",
+          branchOperator: "always",
+          branchValue: "",
           slaMinutes: 20,
           escalationAfterMinutes: 30,
           escalationTargetLabel: "Head of Security Operations",
@@ -117,6 +123,12 @@ describe("control plane router", () => {
           stageName: "Incident Commander Approval",
           requiredRole: "admin",
           defaultApproverLabel: "Incident Commander",
+          stageMode: "parallel",
+          laneKey: "parallel-a",
+          branchSourceStageOrder: null,
+          branchLabel: "",
+          branchOperator: "always",
+          branchValue: "",
           slaMinutes: 30,
           escalationAfterMinutes: 45,
           escalationTargetLabel: "Security Steering Committee",
@@ -137,6 +149,12 @@ describe("control plane router", () => {
           stageName: "SOC Triage",
           requiredRole: "approver",
           defaultApproverLabel: "SOC Lead",
+          stageMode: "serial",
+          laneKey: "main",
+          branchSourceStageOrder: null,
+          branchLabel: "",
+          branchOperator: "always",
+          branchValue: "",
           slaMinutes: 20,
           escalationAfterMinutes: 25,
           escalationTargetLabel: "Head of Security Operations",
@@ -145,6 +163,12 @@ describe("control plane router", () => {
           stageName: "Executive Approval",
           requiredRole: "admin",
           defaultApproverLabel: "CISO Office",
+          stageMode: "branch",
+          laneKey: "branch-a",
+          branchSourceStageOrder: 1,
+          branchLabel: "Nur bei Sicherheitsvorfall",
+          branchOperator: "contains",
+          branchValue: "Security",
           slaMinutes: 30,
           escalationAfterMinutes: 40,
           escalationTargetLabel: "Executive Risk Committee",
@@ -167,6 +191,112 @@ describe("control plane router", () => {
     expect(assigned.chainName).toBe("Security incident escalation chain");
     expect(assigned.currentStageOrder).toBe(1);
     expect(assigned.stages[0]?.name).toBe("SOC Triage");
+  });
+
+  it("applies stored parallel and branching configuration to a real approval workflow", async () => {
+    const caller = appRouter.createCaller(createAuthContext());
+
+    const created = await caller.approvals.createChain({
+      name: "Parallel risk review chain",
+      description: "Kombiniert sequenzielle, parallele und bedingte Stufen für Hochrisiko-Aktionen.",
+      escalationMode: "parallel",
+      stages: [
+        {
+          stageName: "Primary Review",
+          requiredRole: "approver",
+          defaultApproverLabel: "Ops Lead",
+          stageMode: "serial",
+          laneKey: "main",
+          branchSourceStageOrder: null,
+          branchLabel: "",
+          branchOperator: "always",
+          branchValue: "",
+          slaMinutes: 15,
+          escalationAfterMinutes: 20,
+          escalationTargetLabel: "Ops Director",
+        },
+        {
+          stageName: "Finance Parallel Review",
+          requiredRole: "approver",
+          defaultApproverLabel: "Finance Lead",
+          stageMode: "parallel",
+          laneKey: "parallel-a",
+          branchSourceStageOrder: null,
+          branchLabel: "",
+          branchOperator: "always",
+          branchValue: "",
+          slaMinutes: 20,
+          escalationAfterMinutes: 30,
+          escalationTargetLabel: "Finance Director",
+        },
+        {
+          stageName: "Security Parallel Review",
+          requiredRole: "admin",
+          defaultApproverLabel: "Security Lead",
+          stageMode: "parallel",
+          laneKey: "parallel-b",
+          branchSourceStageOrder: null,
+          branchLabel: "",
+          branchOperator: "always",
+          branchValue: "",
+          slaMinutes: 20,
+          escalationAfterMinutes: 30,
+          escalationTargetLabel: "CISO",
+        },
+        {
+          stageName: "Executive Branch Review",
+          requiredRole: "admin",
+          defaultApproverLabel: "Executive Risk Committee",
+          stageMode: "branch",
+          laneKey: "branch-a",
+          branchSourceStageOrder: 3,
+          branchLabel: "High risk only",
+          branchOperator: "contains",
+          branchValue: "high-risk",
+          slaMinutes: 25,
+          escalationAfterMinutes: 35,
+          escalationTargetLabel: "CEO Office",
+        },
+      ],
+    });
+
+    const assigned = await caller.approvals.assignChain({ approvalId: 1, chainId: created.id });
+    expect(assigned.stages.map(stage => stage.status)).toEqual(["pending", "waiting", "waiting", "waiting"]);
+
+    const afterPrimary = await caller.approvals.resolve({
+      approvalId: 1,
+      decision: "approved",
+      note: "routine",
+    });
+
+    expect(afterPrimary.status).toBe("pending");
+    expect(afterPrimary.stages[1]?.status).toBe("pending");
+    expect(afterPrimary.stages[2]?.status).toBe("pending");
+
+    const afterParallelA = await caller.approvals.resolve({
+      approvalId: 1,
+      decision: "approved",
+      note: "parallel finance review done",
+    });
+    expect(afterParallelA.status).toBe("pending");
+    expect(afterParallelA.stages[2]?.status).toBe("pending");
+    expect(afterParallelA.stages[3]?.status).toBe("waiting");
+
+    const afterParallelB = await caller.approvals.resolve({
+      approvalId: 1,
+      decision: "approved",
+      note: "high-risk confirmed",
+    });
+    expect(afterParallelB.status).toBe("pending");
+    expect(afterParallelB.stages[3]?.status).toBe("pending");
+
+    const afterBranch = await caller.approvals.resolve({
+      approvalId: 1,
+      decision: "approved",
+      note: "executive branch cleared",
+    });
+    expect(afterBranch.status).toBe("approved");
+    expect(afterBranch.stages.every(stage => stage.status === "approved")).toBe(true);
   });
 
   it("creates teams and permissions for Rollen- und Rechteverwaltung", async () => {
