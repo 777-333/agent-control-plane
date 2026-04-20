@@ -1,10 +1,31 @@
+import { z } from "zod";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, router } from "./_core/trpc";
+import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import {
+  createAgent,
+  createEvaluationRun,
+  createGuardrailEvent,
+  createPermission,
+  createPolicy,
+  createTeam,
+  getAccessOverview,
+  getControlPlaneSnapshot,
+  getDashboardOverview,
+  listAgents,
+  listApprovals,
+  listAuditEvents,
+  listConnectors,
+  listEvaluations,
+  listGuardrailEvents,
+  listMetricSnapshots,
+  listPolicies,
+  resolveApproval,
+} from "./db";
+import { notifyOwner } from "./_core/notification";
 
 export const appRouter = router({
-    // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
@@ -16,13 +37,131 @@ export const appRouter = router({
       } as const;
     }),
   }),
-
-  // TODO: add feature routers here, e.g.
-  // todo: router({
-  //   list: protectedProcedure.query(({ ctx }) =>
-  //     db.getUserTodos(ctx.user.id)
-  //   ),
-  // }),
+  controlPlane: router({
+    snapshot: protectedProcedure.query(async () => getControlPlaneSnapshot()),
+  }),
+  dashboard: router({
+    overview: protectedProcedure.query(async () => getDashboardOverview()),
+  }),
+  agents: router({
+    list: protectedProcedure.query(async () => listAgents()),
+    create: protectedProcedure
+      .input(
+        z.object({
+          name: z.string().min(2),
+          description: z.string().min(10),
+          team: z.string().min(2),
+          owner: z.string().min(2),
+          model: z.string().min(2),
+          environment: z.enum(["production", "staging", "development"]),
+        }),
+      )
+      .mutation(async ({ input }) => createAgent(input)),
+  }),
+  policies: router({
+    list: protectedProcedure.query(async () => listPolicies()),
+    create: protectedProcedure
+      .input(
+        z.object({
+          name: z.string().min(2),
+          scopeType: z.string().min(2),
+          scopeRef: z.string().min(2),
+          actionPattern: z.string().min(2),
+          effect: z.enum(["allowed", "forbidden", "approval_required"]),
+          priority: z.number().int().min(1).max(999),
+          description: z.string().min(8),
+        }),
+      )
+      .mutation(async ({ input }) => createPolicy(input)),
+  }),
+  access: router({
+    overview: protectedProcedure.query(async () => getAccessOverview()),
+    createTeam: protectedProcedure
+      .input(
+        z.object({
+          name: z.string().min(2),
+          owner: z.string().min(2),
+          coverage: z.string().min(2),
+        }),
+      )
+      .mutation(async ({ input }) => createTeam(input)),
+    createPermission: protectedProcedure
+      .input(
+        z.object({
+          subject: z.string().min(2),
+          subjectType: z.enum(["user", "team"]),
+          agentName: z.string().min(2),
+          permissionLevel: z.enum(["viewer", "operator", "approver", "admin"]),
+          toolScope: z.string().min(2),
+        }),
+      )
+      .mutation(async ({ input }) => createPermission(input)),
+  }),
+  approvals: router({
+    list: protectedProcedure.query(async () => listApprovals()),
+    resolve: protectedProcedure
+      .input(
+        z.object({
+          approvalId: z.number().int(),
+          decision: z.enum(["approved", "rejected"]),
+        }),
+      )
+      .mutation(async ({ ctx, input }) =>
+        resolveApproval({
+          approvalId: input.approvalId,
+          decision: input.decision,
+          approver: ctx.user.name || ctx.user.email || "Current User",
+        }),
+      ),
+    notify: protectedProcedure
+      .input(
+        z.object({
+          approvalTitle: z.string().min(2),
+          severity: z.string().min(2),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        const delivered = await notifyOwner({
+          title: `Approval Workflow: ${input.approvalTitle}`,
+          content: `Eine Freigabe mit Priorität ${input.severity} wurde zur Prüfung oder Eskalation markiert.`,
+        });
+        return { delivered };
+      }),
+  }),
+  audit: router({
+    list: protectedProcedure.query(async () => listAuditEvents()),
+  }),
+  connectors: router({
+    list: protectedProcedure.query(async () => listConnectors()),
+  }),
+  evaluations: router({
+    list: protectedProcedure.query(async () => listEvaluations()),
+    run: protectedProcedure
+      .input(
+        z.object({
+          agentId: z.number().int(),
+          name: z.string().min(2),
+          expectedOutcome: z.string().min(8),
+        }),
+      )
+      .mutation(async ({ input }) => createEvaluationRun(input)),
+  }),
+  guardrails: router({
+    list: protectedProcedure.query(async () => listGuardrailEvents()),
+    trigger: protectedProcedure
+      .input(
+        z.object({
+          agentId: z.number().int(),
+          triggerType: z.string().min(2),
+          thresholdLabel: z.string().min(2),
+          detail: z.string().min(8),
+        }),
+      )
+      .mutation(async ({ input }) => createGuardrailEvent(input)),
+  }),
+  observability: router({
+    metrics: protectedProcedure.query(async () => listMetricSnapshots()),
+  }),
 });
 
 export type AppRouter = typeof appRouter;

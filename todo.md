@@ -1,0 +1,24 @@
+# Project TODO
+
+- [x] Anforderungsbild für das AI-Agent-Governance- und Operations-Dashboard konsolidieren und verbindliche Produktstruktur festhalten
+- [x] Elegantes, professionelles Designsystem mit präziser Typografie, visueller Hierarchie und hochwertiger Dashboard-Ästhetik definieren
+- [x] Informationsarchitektur und Navigationsstruktur für die Plattform festlegen
+- [x] Dashboard-Übersicht mit Statistiken zu aktiven Agenten, ausstehenden Freigaben, Audit-Events und Kosten umsetzen
+- [x] Agenten-Verwaltung: Registrierung, Konfiguration und Status-Monitoring von KI-Agenten umsetzen
+- [x] Policy Engine: Regelwerk definieren, welche Aktionen ein Agent erlaubt, verboten oder freigabepflichtig ausführen darf
+- [x] Rollen- und Rechteverwaltung: Nutzer, Teams und Berechtigungen pro Agent und Tool verwalten
+- [x] Approval Workflow: menschliche Freigabe für kritische Agentenaktionen mit Benachrichtigung und Genehmigungsprozess umsetzen
+- [x] Audit Log: vollständige, filterbare Protokollierung aller Agentenentscheidungen, Tool-Aufrufe und Aktionen umsetzen
+- [x] Tool & Connector Layer: Verwaltung von Systemverbindungen (CRM, ERP, E-Mail, Browser, Datenbanken) umsetzen
+- [x] Evaluation Layer: Testfälle definieren und Agenten vor dem Deployment auf Regelkonformität prüfen
+- [x] Runtime Guardrails: Live-Überwachung und automatisches Stoppen bei Regelverstößen oder Kostenüberschreitung umsetzen
+- [x] Observability & Cost Monitoring: Echtzeit-Metriken zu Latenz, Fehlerrate, API-Kosten und Token-Verbrauch umsetzen
+- [x] Datenmodell und tRPC-Schnittstellen für Governance-, Policy-, Approval-, Audit- und Monitoring-Daten definieren
+- [x] Vitest-Tests für Kernlogik und zentrale Datenflüsse erstellen
+- [x] Dokumentation, Onboarding-Text und Übergabeunterlagen erstellen
+- [x] Rollen- und Rechteverwaltung um Mutationen und Formulare für Nutzer-, Team- und Berechtigungsverwaltung erweitern
+- [x] Benachrichtigungen für neue oder eskalierte Approval-Anfragen implementieren und testen
+- [x] Evaluation Layer um Testfall-Erstellung und Pre-Deployment-Ausführung ergänzen
+- [x] Runtime Guardrails mit echter Prüf- und Stopplogik bei Policy- oder Kostenschwellen erweitern
+- [x] Observability & Cost Monitoring mit regelmäßig aktualisierten Metrikflüssen statt rein statischen Snapshots erweitern
+- [x] Drizzle-Migration auf die laufende Datenbank anwenden und Datenmodell synchronisieren

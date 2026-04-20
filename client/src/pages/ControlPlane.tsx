@@ -1,0 +1,1006 @@
+import { trpc } from "@/lib/trpc";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Loader2, Shield, Activity, BellRing, BrainCircuit, FileSearch, Blocks, UserCog, Fingerprint, ChartNoAxesCombined, Waypoints, Sparkles } from "lucide-react";
+import { toast } from "sonner";
+import { useMemo, useState } from "react";
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat("de-DE", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(value);
+}
+
+function formatNumber(value: number) {
+  return new Intl.NumberFormat("de-DE").format(value);
+}
+
+function timeAgo(timestamp: number) {
+  const minutes = Math.max(1, Math.round((Date.now() - timestamp) / 60000));
+  if (minutes < 60) return `vor ${minutes} Min.`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `vor ${hours} Std.`;
+  return `vor ${Math.round(hours / 24)} Tg.`;
+}
+
+function useSnapshot() {
+  return trpc.controlPlane.snapshot.useQuery(undefined, {
+    staleTime: 0,
+    refetchInterval: 8_000,
+    refetchOnWindowFocus: false,
+  });
+}
+
+function LoadingState() {
+  return (
+    <div className="flex min-h-[60vh] items-center justify-center rounded-[28px] border border-slate-200/70 bg-white/75 shadow-[0_20px_60px_rgba(15,23,42,0.06)] backdrop-blur-sm">
+      <div className="flex items-center gap-3 text-slate-600">
+        <Loader2 className="h-5 w-5 animate-spin" />
+        <span className="text-sm font-medium">Lade Governance- und Operations-Daten …</span>
+      </div>
+    </div>
+  );
+}
+
+function ErrorState() {
+  return (
+    <div className="rounded-[28px] border border-rose-200 bg-rose-50 p-6 text-sm text-rose-700 shadow-sm">
+      Die Daten konnten nicht geladen werden. Bitte prüfe die Serververbindung und versuche es erneut.
+    </div>
+  );
+}
+
+function Surface({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  return (
+    <section className={`rounded-[28px] border border-slate-200/70 bg-white/80 shadow-[0_20px_60px_rgba(15,23,42,0.06)] backdrop-blur-sm ${className}`}>
+      {children}
+    </section>
+  );
+}
+
+function SectionHeader({
+  eyebrow,
+  title,
+  description,
+  actions,
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+  actions?: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+      <div>
+        <p className="text-[11px] font-medium uppercase tracking-[0.2em] text-slate-500">{eyebrow}</p>
+        <h1 className="mt-2 text-3xl font-semibold tracking-[-0.045em] text-slate-950 md:text-[2rem]">{title}</h1>
+        <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">{description}</p>
+      </div>
+      {actions ? <div className="flex items-center gap-3">{actions}</div> : null}
+    </div>
+  );
+}
+
+function MetricCard({
+  label,
+  value,
+  hint,
+  icon,
+}: {
+  label: string;
+  value: string;
+  hint: string;
+  icon: React.ReactNode;
+}) {
+  return (
+    <Surface className="p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">{label}</p>
+          <p className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-slate-950">{value}</p>
+          <p className="mt-2 text-sm text-slate-500">{hint}</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-slate-700">{icon}</div>
+      </div>
+    </Surface>
+  );
+}
+
+function ModuleBadge({ label, tone = "neutral" }: { label: string; tone?: "neutral" | "success" | "warning" | "danger" }) {
+  const toneMap = {
+    neutral: "border-slate-200 bg-slate-100 text-slate-700",
+    success: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    warning: "border-amber-200 bg-amber-50 text-amber-700",
+    danger: "border-rose-200 bg-rose-50 text-rose-700",
+  } as const;
+  return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${toneMap[tone]}`}>{label}</span>;
+}
+
+function TwoColumnGrid({ left, right }: { left: React.ReactNode; right: React.ReactNode }) {
+  return <div className="grid gap-6 xl:grid-cols-[1.25fr_0.95fr]">{left}{right}</div>;
+}
+
+function useCreateAgentForm() {
+  return useState<{
+    name: string;
+    description: string;
+    team: string;
+    owner: string;
+    model: string;
+    environment: "production" | "staging" | "development";
+  }>({
+    name: "",
+    description: "",
+    team: "Finance Operations",
+    owner: "",
+    model: "gpt-4.1",
+    environment: "production",
+  });
+}
+
+export function DashboardOverviewPage() {
+  const { data, isLoading, error } = useSnapshot();
+
+  if (isLoading) return <LoadingState />;
+  if (error || !data) return <ErrorState />;
+
+  const stats = data.dashboard.stats;
+  const pieData = [
+    { name: "Healthy", value: data.dashboard.agentStatusDistribution.healthy, color: "#0f172a" },
+    { name: "Warning", value: data.dashboard.agentStatusDistribution.warning, color: "#f59e0b" },
+    { name: "Paused", value: data.dashboard.agentStatusDistribution.paused, color: "#64748b" },
+    { name: "Offline", value: data.dashboard.agentStatusDistribution.offline, color: "#ef4444" },
+  ];
+  const costTrend = data.metrics.map(item => ({ name: item.agentName.split(" ")[0], cost: item.apiCostUsd, latency: item.latencyMs }));
+
+  return (
+    <div className="space-y-6">
+      <SectionHeader
+        eyebrow="Control Center"
+        title="Dashboard-Übersicht"
+        description="Zentrale Lageübersicht für aktive Agenten, ausstehende Freigaben, Audit-Signale, Kosten und kritische Guardrail-Ereignisse."
+        actions={<Badge className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700 shadow-sm">Live posture</Badge>}
+      />
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard label="Aktive Agenten" value={String(stats.activeAgents)} hint="Agenten mit aktivem Betriebszustand" icon={<BrainCircuit className="h-5 w-5" />} />
+        <MetricCard label="Ausstehende Freigaben" value={String(stats.pendingApprovals)} hint="Kritische Aktionen warten auf Entscheidung" icon={<BellRing className="h-5 w-5" />} />
+        <MetricCard label="Audit-Events" value={String(stats.auditEvents)} hint="Dokumentierte sicherheitsrelevante Signale" icon={<Fingerprint className="h-5 w-5" />} />
+        <MetricCard label="Monatliche Kosten" value={formatCurrency(stats.totalCost)} hint="Aggregierte API- und Laufzeitkosten" icon={<ChartNoAxesCombined className="h-5 w-5" />} />
+      </div>
+
+      <TwoColumnGrid
+        left={
+          <Surface className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold text-slate-950">Agent Health & Cost Posture</p>
+                <p className="mt-1 text-sm text-slate-500">Kosten und Latenz pro priorisiertem Agenten.</p>
+              </div>
+              <ModuleBadge label={`${formatNumber(stats.totalTokens)} Tokens`} />
+            </div>
+            <div className="mt-6 h-[320px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={costTrend}>
+                  <defs>
+                    <linearGradient id="colorCost" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#0f172a" stopOpacity={0.32} />
+                      <stop offset="95%" stopColor="#0f172a" stopOpacity={0.02} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid stroke="#e2e8f0" vertical={false} />
+                  <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fill: "#64748b", fontSize: 12 }} />
+                  <YAxis tickLine={false} axisLine={false} tick={{ fill: "#64748b", fontSize: 12 }} />
+                  <Tooltip />
+                  <Area type="monotone" dataKey="cost" stroke="#0f172a" fill="url(#colorCost)" strokeWidth={2} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </Surface>
+        }
+        right={
+          <Surface className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold text-slate-950">Status-Verteilung</p>
+                <p className="mt-1 text-sm text-slate-500">Operative Verteilung der Agentenzustände.</p>
+              </div>
+              <ModuleBadge label={`${stats.avgLatency} ms Ø`} tone="warning" />
+            </div>
+            <div className="mt-2 h-[300px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={pieData} dataKey="value" innerRadius={68} outerRadius={100} paddingAngle={5}>
+                    {pieData.map(entry => <Cell key={entry.name} fill={entry.color} />)}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="grid gap-2">
+              {pieData.map(item => (
+                <div key={item.name} className="flex items-center justify-between rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-3 text-sm">
+                  <div className="flex items-center gap-3">
+                    <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />
+                    <span className="text-slate-700">{item.name}</span>
+                  </div>
+                  <span className="font-semibold text-slate-950">{item.value}</span>
+                </div>
+              ))}
+            </div>
+          </Surface>
+        }
+      />
+
+      <div className="grid gap-6 xl:grid-cols-2">
+        <Surface className="p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-slate-950">Ausstehende Freigaben</p>
+              <p className="mt-1 text-sm text-slate-500">Entscheidungen mit menschlicher Verantwortung.</p>
+            </div>
+            <ModuleBadge label={`${data.dashboard.pendingApprovals.length} offen`} tone="warning" />
+          </div>
+          <div className="mt-5 space-y-3">
+            {data.dashboard.pendingApprovals.map(item => (
+              <div key={item.id} className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-950">{item.title}</p>
+                    <p className="mt-1 text-sm leading-6 text-slate-600">{item.summary}</p>
+                  </div>
+                  <ModuleBadge label={item.riskLevel} tone={item.riskLevel === "critical" ? "danger" : "warning"} />
+                </div>
+                <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
+                  <span>{item.agentName}</span>
+                  <span>{timeAgo(item.requestedAt)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Surface>
+
+        <Surface className="p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-slate-950">Neueste Audit-Signale</p>
+              <p className="mt-1 text-sm text-slate-500">Relevante Governance-, Approval- und Guardrail-Ereignisse.</p>
+            </div>
+            <ModuleBadge label={`${stats.errorRate}% Fehler`} tone="danger" />
+          </div>
+          <div className="mt-5 space-y-3">
+            {data.dashboard.recentAuditEvents.map(event => (
+              <div key={event.id} className="rounded-2xl border border-slate-200/80 bg-white px-4 py-4 shadow-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-slate-950">{event.title}</p>
+                  <ModuleBadge label={event.severity} tone={event.severity === "critical" ? "danger" : event.severity === "warning" ? "warning" : "success"} />
+                </div>
+                <p className="mt-2 text-sm leading-6 text-slate-600">{event.detail}</p>
+                <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
+                  <span>{event.category}</span>
+                  <span>{timeAgo(event.createdAt)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Surface>
+      </div>
+    </div>
+  );
+}
+
+export function AgentsPage() {
+  const utils = trpc.useUtils();
+  const { data, isLoading, error } = useSnapshot();
+  const createMutation = trpc.agents.create.useMutation({
+    onSuccess: async () => {
+      toast.success("Agent erfolgreich registriert");
+      await utils.controlPlane.snapshot.invalidate();
+    },
+  });
+  const [form, setForm] = useCreateAgentForm();
+
+  if (isLoading) return <LoadingState />;
+  if (error || !data) return <ErrorState />;
+
+  return (
+    <div className="space-y-6">
+      <SectionHeader
+        eyebrow="Operations"
+        title="Agenten-Verwaltung"
+        description="Registriere Agenten, konfiguriere Modell- und Umgebungsparameter und überwache den operativen Gesundheitszustand in Echtzeit."
+        actions={<ModuleBadge label={`${data.agents.length} registriert`} />}
+      />
+
+      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <Surface className="p-6">
+          <p className="text-sm font-semibold text-slate-950">Aktive Agentenflotte</p>
+          <div className="mt-5 grid gap-4">
+            {data.agents.map(agent => (
+              <div key={agent.id} className="rounded-[24px] border border-slate-200/80 bg-white px-5 py-5 shadow-sm">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <div className="flex items-center gap-3">
+                      <h3 className="text-lg font-semibold tracking-[-0.03em] text-slate-950">{agent.name}</h3>
+                      <ModuleBadge label={agent.status} tone={agent.status === "healthy" ? "success" : agent.status === "warning" ? "warning" : "danger"} />
+                    </div>
+                    <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">{agent.description}</p>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {agent.tools.map(tool => <ModuleBadge key={tool} label={tool} />)}
+                    </div>
+                  </div>
+                  <div className="grid min-w-[230px] gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                    <div className="flex justify-between"><span>Team</span><span className="font-medium text-slate-950">{agent.team}</span></div>
+                    <div className="flex justify-between"><span>Owner</span><span className="font-medium text-slate-950">{agent.owner}</span></div>
+                    <div className="flex justify-between"><span>Modell</span><span className="font-medium text-slate-950">{agent.model}</span></div>
+                    <div className="flex justify-between"><span>Policy Mode</span><span className="font-medium text-slate-950">{agent.policyMode}</span></div>
+                    <div className="flex justify-between"><span>Heartbeat</span><span className="font-medium text-slate-950">{timeAgo(agent.lastHeartbeat)}</span></div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Surface>
+
+        <Surface className="p-6">
+          <p className="text-sm font-semibold text-slate-950">Neuen Agenten registrieren</p>
+          <p className="mt-1 text-sm leading-6 text-slate-500">Lege eine neue Instanz für das Dashboard an und verknüpfe sie später mit Policies, Tool-Zugriffen und Guardrails.</p>
+          <div className="mt-5 space-y-4">
+            <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none ring-0 placeholder:text-slate-400" placeholder="Agentenname" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
+            <textarea className="min-h-[108px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-950 outline-none placeholder:text-slate-400" placeholder="Beschreibung" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
+            <div className="grid gap-4 md:grid-cols-2">
+              <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none placeholder:text-slate-400" placeholder="Team" value={form.team} onChange={e => setForm({ ...form, team: e.target.value })} />
+              <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none placeholder:text-slate-400" placeholder="Owner" value={form.owner} onChange={e => setForm({ ...form, owner: e.target.value })} />
+              <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none placeholder:text-slate-400" placeholder="Modell" value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} />
+              <select className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none" value={form.environment} onChange={e => setForm({ ...form, environment: e.target.value as "production" | "staging" | "development" })}>
+                <option value="production">production</option>
+                <option value="staging">staging</option>
+                <option value="development">development</option>
+              </select>
+            </div>
+            <Button
+              className="h-11 w-full rounded-2xl bg-slate-950 text-white hover:bg-slate-900"
+              disabled={createMutation.isPending}
+              onClick={() => {
+                if (!form.name || !form.description || !form.owner) {
+                  toast.error("Bitte vervollständige Name, Beschreibung und Owner.");
+                  return;
+                }
+                createMutation.mutate(form);
+                setForm({ name: "", description: "", team: form.team, owner: "", model: form.model, environment: form.environment });
+              }}
+            >
+              {createMutation.isPending ? "Registrierung läuft …" : "Agent registrieren"}
+            </Button>
+          </div>
+        </Surface>
+      </div>
+    </div>
+  );
+}
+
+export function PoliciesPage() {
+  const utils = trpc.useUtils();
+  const { data, isLoading, error } = useSnapshot();
+  const createMutation = trpc.policies.create.useMutation({
+    onSuccess: async () => {
+      toast.success("Policy erfolgreich erstellt");
+      await utils.controlPlane.snapshot.invalidate();
+    },
+  });
+  const [form, setForm] = useState({
+    name: "",
+    scopeType: "agent",
+    scopeRef: "Finance Sentinel",
+    actionPattern: "",
+    effect: "approval_required" as "allowed" | "forbidden" | "approval_required",
+    priority: 100,
+    description: "",
+  });
+
+  if (isLoading) return <LoadingState />;
+  if (error || !data) return <ErrorState />;
+
+  return (
+    <div className="space-y-6">
+      <SectionHeader
+        eyebrow="Governance"
+        title="Policy Engine"
+        description="Definiere, welche Aktionen ein Agent erlaubt, verboten oder freigabepflichtig ausführen darf. Priorität, Geltungsbereich und Policy-Effekt bleiben explizit sichtbar."
+      />
+
+      <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+        <Surface className="p-6">
+          <p className="text-sm font-semibold text-slate-950">Aktive Policies</p>
+          <div className="mt-5 space-y-3">
+            {data.policies.map(policy => (
+              <div key={policy.id} className="rounded-[24px] border border-slate-200/80 bg-white px-5 py-5 shadow-sm">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base font-semibold text-slate-950">{policy.name}</h3>
+                      <ModuleBadge
+                        label={policy.effect}
+                        tone={policy.effect === "allowed" ? "success" : policy.effect === "forbidden" ? "danger" : "warning"}
+                      />
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">{policy.description}</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <ModuleBadge label={`Scope: ${policy.scopeType}`} />
+                      <ModuleBadge label={`Ref: ${policy.scopeRef}`} />
+                      <ModuleBadge label={`Action: ${policy.actionPattern}`} />
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                    Priorität <span className="font-semibold text-slate-950">{policy.priority}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Surface>
+
+        <Surface className="p-6">
+          <p className="text-sm font-semibold text-slate-950">Neue Policy definieren</p>
+          <div className="mt-5 space-y-4">
+            <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Policy-Name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
+            <div className="grid gap-4 md:grid-cols-2">
+              <select className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" value={form.scopeType} onChange={e => setForm({ ...form, scopeType: e.target.value })}>
+                <option value="agent">agent</option>
+                <option value="team">team</option>
+                <option value="connector">connector</option>
+                <option value="global">global</option>
+              </select>
+              <input className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Scope Reference" value={form.scopeRef} onChange={e => setForm({ ...form, scopeRef: e.target.value })} />
+              <input className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Action Pattern" value={form.actionPattern} onChange={e => setForm({ ...form, actionPattern: e.target.value })} />
+              <select className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" value={form.effect} onChange={e => setForm({ ...form, effect: e.target.value as typeof form.effect })}>
+                <option value="allowed">allowed</option>
+                <option value="forbidden">forbidden</option>
+                <option value="approval_required">approval_required</option>
+              </select>
+            </div>
+            <input type="number" className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm" value={form.priority} onChange={e => setForm({ ...form, priority: Number(e.target.value) })} />
+            <textarea className="min-h-[108px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm" placeholder="Beschreibung" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
+            <Button
+              className="h-11 w-full rounded-2xl bg-slate-950 text-white hover:bg-slate-900"
+              disabled={createMutation.isPending}
+              onClick={() => {
+                if (!form.name || !form.actionPattern || !form.description) {
+                  toast.error("Bitte vervollständige Name, Action Pattern und Beschreibung.");
+                  return;
+                }
+                createMutation.mutate(form);
+                setForm({ ...form, name: "", actionPattern: "", description: "", priority: 100 });
+              }}
+            >
+              {createMutation.isPending ? "Policy wird erstellt …" : "Policy speichern"}
+            </Button>
+          </div>
+        </Surface>
+      </div>
+    </div>
+  );
+}
+
+export function AccessPage() {
+  const utils = trpc.useUtils();
+  const { data, isLoading, error } = useSnapshot();
+  const teamMutation = trpc.access.createTeam.useMutation({
+    onSuccess: async () => {
+      toast.success("Team angelegt");
+      await utils.controlPlane.snapshot.invalidate();
+    },
+  });
+  const permissionMutation = trpc.access.createPermission.useMutation({
+    onSuccess: async () => {
+      toast.success("Berechtigung gespeichert");
+      await utils.controlPlane.snapshot.invalidate();
+    },
+  });
+  const [teamForm, setTeamForm] = useState({ name: "", owner: "", coverage: "" });
+  const [permissionForm, setPermissionForm] = useState({
+    subject: "",
+    subjectType: "user" as "user" | "team",
+    agentName: "Finance Sentinel",
+    permissionLevel: "viewer" as "viewer" | "operator" | "approver" | "admin",
+    toolScope: "",
+  });
+
+  if (isLoading) return <LoadingState />;
+  if (error || !data) return <ErrorState />;
+
+  return (
+    <div className="space-y-6">
+      <SectionHeader eyebrow="Security" title="Rollen- und Rechteverwaltung" description="Verwalte Nutzer, Teams und Berechtigungen pro Agent und Tool mit expliziter Zuordnung von Viewer-, Operator-, Approver- und Admin-Rechten." />
+      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <Surface className="p-6">
+          <p className="text-sm font-semibold text-slate-950">Teams</p>
+          <div className="mt-5 space-y-3">
+            {data.access.teams.map(team => (
+              <div key={team.id} className="rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-950">{team.name}</p>
+                    <p className="mt-1 text-sm text-slate-600">Owner: {team.owner}</p>
+                  </div>
+                  <ModuleBadge label={`${team.members} Members`} />
+                </div>
+                <p className="mt-3 text-sm text-slate-500">Coverage: {team.coverage}</p>
+              </div>
+            ))}
+          </div>
+          <div className="mt-6 rounded-[24px] border border-slate-200 bg-slate-50 p-4">
+            <p className="text-sm font-semibold text-slate-950">Neues Team</p>
+            <div className="mt-4 grid gap-3">
+              <input className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Teamname" value={teamForm.name} onChange={e => setTeamForm({ ...teamForm, name: e.target.value })} />
+              <input className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Owner" value={teamForm.owner} onChange={e => setTeamForm({ ...teamForm, owner: e.target.value })} />
+              <input className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Coverage" value={teamForm.coverage} onChange={e => setTeamForm({ ...teamForm, coverage: e.target.value })} />
+              <Button className="h-11 rounded-2xl bg-slate-950 text-white hover:bg-slate-900" disabled={teamMutation.isPending} onClick={() => {
+                if (!teamForm.name || !teamForm.owner || !teamForm.coverage) {
+                  toast.error("Bitte alle Teamfelder ausfüllen.");
+                  return;
+                }
+                teamMutation.mutate(teamForm);
+                setTeamForm({ name: "", owner: "", coverage: "" });
+              }}>Team anlegen</Button>
+            </div>
+          </div>
+        </Surface>
+        <Surface className="p-6">
+          <p className="text-sm font-semibold text-slate-950">Berechtigungen pro Agent und Tool</p>
+          <div className="mt-5 space-y-3">
+            {data.access.permissions.map(item => (
+              <div key={item.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-950">{item.subject}</p>
+                    <p className="mt-1 text-sm text-slate-600">{item.subjectType} · {item.agentName}</p>
+                  </div>
+                  <ModuleBadge label={item.permissionLevel} tone={item.permissionLevel === "admin" ? "danger" : item.permissionLevel === "approver" ? "warning" : "success"} />
+                </div>
+                <p className="mt-3 text-sm text-slate-500">Tool Scope: {item.toolScope}</p>
+              </div>
+            ))}
+          </div>
+          <div className="mt-6 rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm">
+            <p className="text-sm font-semibold text-slate-950">Neue Berechtigung</p>
+            <div className="mt-4 grid gap-3">
+              <input className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Subject" value={permissionForm.subject} onChange={e => setPermissionForm({ ...permissionForm, subject: e.target.value })} />
+              <div className="grid gap-3 md:grid-cols-2">
+                <select className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" value={permissionForm.subjectType} onChange={e => setPermissionForm({ ...permissionForm, subjectType: e.target.value as "user" | "team" })}>
+                  <option value="user">user</option>
+                  <option value="team">team</option>
+                </select>
+                <select className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" value={permissionForm.permissionLevel} onChange={e => setPermissionForm({ ...permissionForm, permissionLevel: e.target.value as "viewer" | "operator" | "approver" | "admin" })}>
+                  <option value="viewer">viewer</option>
+                  <option value="operator">operator</option>
+                  <option value="approver">approver</option>
+                  <option value="admin">admin</option>
+                </select>
+              </div>
+              <input className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Agent Name" value={permissionForm.agentName} onChange={e => setPermissionForm({ ...permissionForm, agentName: e.target.value })} />
+              <input className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Tool Scope" value={permissionForm.toolScope} onChange={e => setPermissionForm({ ...permissionForm, toolScope: e.target.value })} />
+              <Button className="h-11 rounded-2xl bg-slate-950 text-white hover:bg-slate-900" disabled={permissionMutation.isPending} onClick={() => {
+                if (!permissionForm.subject || !permissionForm.agentName || !permissionForm.toolScope) {
+                  toast.error("Bitte alle Berechtigungsfelder ausfüllen.");
+                  return;
+                }
+                permissionMutation.mutate(permissionForm);
+                setPermissionForm({ ...permissionForm, subject: "", toolScope: "" });
+              }}>Berechtigung speichern</Button>
+            </div>
+          </div>
+        </Surface>
+      </div>
+    </div>
+  );
+}
+
+export function ApprovalsPage() {
+  const utils = trpc.useUtils();
+  const { data, isLoading, error } = useSnapshot();
+  const resolveMutation = trpc.approvals.resolve.useMutation({
+    onSuccess: async () => {
+      toast.success("Freigabeentscheidung gespeichert");
+      await utils.controlPlane.snapshot.invalidate();
+    },
+  });
+  const notifyMutation = trpc.approvals.notify.useMutation({
+    onSuccess: result => {
+      toast.success(result.delivered ? "Benachrichtigung ausgelöst" : "Benachrichtigung konnte nicht zugestellt werden");
+    },
+  });
+  if (isLoading) return <LoadingState />;
+  if (error || !data) return <ErrorState />;
+
+  return (
+    <div className="space-y-6">
+      <SectionHeader eyebrow="Human-in-the-loop" title="Approval Workflow" description="Kritische Agentenaktionen werden mit Benachrichtigung, Kontext und klaren Entscheidungsoptionen zur menschlichen Freigabe gestellt." />
+      <Surface className="p-6">
+        <div className="grid gap-4">
+          {data.approvals.map(item => (
+            <div key={item.id} className="rounded-[24px] border border-slate-200/80 bg-white px-5 py-5 shadow-sm">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <div className="flex items-center gap-3">
+                    <h3 className="text-base font-semibold text-slate-950">{item.title}</h3>
+                    <ModuleBadge label={item.status} tone={item.status === "pending" ? "warning" : item.status === "approved" ? "success" : "danger"} />
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">{item.summary}</p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <ModuleBadge label={item.agentName} />
+                    <ModuleBadge label={`Requested by ${item.requestedBy}`} />
+                    <ModuleBadge label={timeAgo(item.requestedAt)} />
+                  </div>
+                </div>
+                {item.status === "pending" ? (
+                  <div className="flex flex-wrap gap-2">
+                    <Button className="rounded-xl bg-slate-950 text-white hover:bg-slate-900" disabled={resolveMutation.isPending} onClick={() => resolveMutation.mutate({ approvalId: item.id, decision: "approved" })}>Approve</Button>
+                    <Button variant="outline" className="rounded-xl border-slate-300" disabled={resolveMutation.isPending} onClick={() => resolveMutation.mutate({ approvalId: item.id, decision: "rejected" })}>Reject</Button>
+                    <Button variant="outline" className="rounded-xl border-slate-300" disabled={notifyMutation.isPending} onClick={() => notifyMutation.mutate({ approvalTitle: item.title, severity: item.riskLevel })}>Notify</Button>
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">Approver: {item.approver || "–"}</div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </Surface>
+    </div>
+  );
+}
+
+export function AuditPage() {
+  const { data, isLoading, error } = useSnapshot();
+  const [filter, setFilter] = useState("all");
+  if (isLoading) return <LoadingState />;
+  if (error || !data) return <ErrorState />;
+
+  const filtered = data.auditEvents.filter(event => filter === "all" ? true : event.severity === filter);
+
+  return (
+    <div className="space-y-6">
+      <SectionHeader
+        eyebrow="Traceability"
+        title="Audit Log"
+        description="Vollständige, filterbare Protokollierung aller Agentenentscheidungen, Tool-Aufrufe und Governance-Ereignisse mit klarer zeitlicher Nachvollziehbarkeit."
+        actions={
+          <div className="flex gap-2 rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
+            {(["all", "info", "warning", "critical"] as const).map(option => (
+              <button key={option} className={`rounded-xl px-3 py-2 text-xs font-medium ${filter === option ? "bg-slate-950 text-white" : "text-slate-600"}`} onClick={() => setFilter(option)}>
+                {option}
+              </button>
+            ))}
+          </div>
+        }
+      />
+      <Surface className="p-6">
+        <div className="space-y-3">
+          {filtered.map(event => (
+            <div key={event.id} className="rounded-2xl border border-slate-200/80 bg-white px-5 py-4 shadow-sm">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold text-slate-950">{event.title}</p>
+                    <ModuleBadge label={event.severity} tone={event.severity === "critical" ? "danger" : event.severity === "warning" ? "warning" : "success"} />
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">{event.detail}</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <ModuleBadge label={event.agentName} />
+                    <ModuleBadge label={event.category} />
+                    <ModuleBadge label={`${event.actorType}: ${event.actorRef}`} />
+                  </div>
+                </div>
+                <div className="text-xs text-slate-500">{timeAgo(event.createdAt)}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Surface>
+    </div>
+  );
+}
+
+export function ConnectorsPage() {
+  const { data, isLoading, error } = useSnapshot();
+  if (isLoading) return <LoadingState />;
+  if (error || !data) return <ErrorState />;
+
+  return (
+    <div className="space-y-6">
+      <SectionHeader eyebrow="Integrations" title="Tool & Connector Layer" description="Verwalte Systemverbindungen zu CRM, ERP, E-Mail, Browser und Datenbanken mit Status- und Zugriffsübersicht." />
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {data.connectors.map(connector => (
+          <Surface key={connector.id} className="p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-base font-semibold text-slate-950">{connector.name}</p>
+                <p className="mt-1 text-sm text-slate-500">{connector.type}</p>
+              </div>
+              <ModuleBadge label={connector.status} tone={connector.status === "connected" ? "success" : connector.status === "degraded" ? "warning" : "danger"} />
+            </div>
+            <div className="mt-5 grid gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+              <div className="flex justify-between"><span>Endpoint</span><span className="font-medium text-slate-950">{connector.endpointLabel}</span></div>
+              <div className="flex justify-between"><span>Auth Mode</span><span className="font-medium text-slate-950">{connector.authMode}</span></div>
+              <div className="flex justify-between"><span>Linked Agents</span><span className="font-medium text-slate-950">{connector.linkedAgents}</span></div>
+              <div className="flex justify-between"><span>Last Sync</span><span className="font-medium text-slate-950">{timeAgo(connector.lastSyncAt)}</span></div>
+            </div>
+          </Surface>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function EvaluationsPage() {
+  const utils = trpc.useUtils();
+  const { data, isLoading, error } = useSnapshot();
+  const runMutation = trpc.evaluations.run.useMutation({
+    onSuccess: async () => {
+      toast.success("Pre-Deployment-Evaluation ausgeführt");
+      await utils.controlPlane.snapshot.invalidate();
+    },
+  });
+  const [form, setForm] = useState({ agentId: 1, name: "", expectedOutcome: "" });
+  if (isLoading) return <LoadingState />;
+  if (error || !data) return <ErrorState />;
+
+  return (
+    <div className="space-y-6">
+      <SectionHeader eyebrow="Validation" title="Evaluation Layer" description="Testfälle prüfen, Policy-Konformität messen und Agenten vor dem Deployment gegen definierte Kriterien validieren." />
+      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <Surface className="p-6">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-2">
+            {data.evaluations.map(item => (
+              <div key={item.id} className="rounded-[24px] border border-slate-200/80 bg-white px-5 py-5 shadow-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-950">{item.name}</p>
+                    <p className="mt-1 text-sm text-slate-500">{item.agentName}</p>
+                  </div>
+                  <ModuleBadge label={item.status} tone={item.status === "passed" ? "success" : item.status === "failed" ? "danger" : "warning"} />
+                </div>
+                <div className="mt-5 grid grid-cols-2 gap-3">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Score</p>
+                    <p className="mt-2 text-2xl font-semibold text-slate-950">{item.score}</p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Pass Rate</p>
+                    <p className="mt-2 text-2xl font-semibold text-slate-950">{item.policyPassRate}%</p>
+                  </div>
+                </div>
+                <p className="mt-4 text-sm leading-6 text-slate-600">{item.summary}</p>
+              </div>
+            ))}
+          </div>
+        </Surface>
+        <Surface className="p-6">
+          <p className="text-sm font-semibold text-slate-950">Testfall definieren und vor Deployment ausführen</p>
+          <div className="mt-5 grid gap-4">
+            <select className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" value={form.agentId} onChange={e => setForm({ ...form, agentId: Number(e.target.value) })}>
+              {data.agents.map(agent => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
+            </select>
+            <input className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Testfallname" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
+            <textarea className="min-h-[128px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm" placeholder="Erwartetes Ergebnis" value={form.expectedOutcome} onChange={e => setForm({ ...form, expectedOutcome: e.target.value })} />
+            <Button className="h-11 rounded-2xl bg-slate-950 text-white hover:bg-slate-900" disabled={runMutation.isPending} onClick={() => {
+              if (!form.name || !form.expectedOutcome) {
+                toast.error("Bitte Testfallname und erwartetes Ergebnis ausfüllen.");
+                return;
+              }
+              runMutation.mutate(form);
+              setForm({ ...form, name: "", expectedOutcome: "" });
+            }}>Pre-Deployment-Check ausführen</Button>
+          </div>
+        </Surface>
+      </div>
+    </div>
+  );
+}
+
+export function GuardrailsPage() {
+  const utils = trpc.useUtils();
+  const { data, isLoading, error } = useSnapshot();
+  const triggerMutation = trpc.guardrails.trigger.useMutation({
+    onSuccess: async () => {
+      toast.success("Guardrail ausgelöst und Agent pausiert");
+      await utils.controlPlane.snapshot.invalidate();
+    },
+  });
+  const [form, setForm] = useState({ agentId: 1, triggerType: "cost_threshold", thresholdLabel: "Budget > 25 USD", detail: "" });
+  if (isLoading) return <LoadingState />;
+  if (error || !data) return <ErrorState />;
+
+  return (
+    <div className="space-y-6">
+      <SectionHeader eyebrow="Runtime safety" title="Runtime Guardrails" description="Live-Überwachung, automatische Stopps und Sichtbarkeit über Policy-Verstöße, Kostenlimits und Anomalien im Betrieb." />
+      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <Surface className="p-6">
+          <div className="space-y-3">
+            {data.guardrails.map(item => (
+              <div key={item.id} className="rounded-[24px] border border-slate-200/80 bg-white px-5 py-5 shadow-sm">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-semibold text-slate-950">{item.agentName}</p>
+                      <ModuleBadge label={item.status} tone={item.status === "resolved" ? "success" : item.status === "monitoring" ? "warning" : "danger"} />
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">{item.detail}</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <ModuleBadge label={item.triggerType} />
+                      <ModuleBadge label={item.thresholdLabel} />
+                    </div>
+                  </div>
+                  <div className="text-xs text-slate-500">{timeAgo(item.createdAt)}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Surface>
+        <Surface className="p-6">
+          <p className="text-sm font-semibold text-slate-950">Guardrail simulieren</p>
+          <div className="mt-5 grid gap-4">
+            <select className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" value={form.agentId} onChange={e => setForm({ ...form, agentId: Number(e.target.value) })}>
+              {data.agents.map(agent => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
+            </select>
+            <select className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" value={form.triggerType} onChange={e => setForm({ ...form, triggerType: e.target.value })}>
+              <option value="policy_violation">policy_violation</option>
+              <option value="cost_threshold">cost_threshold</option>
+              <option value="tool_anomaly">tool_anomaly</option>
+              <option value="latency_spike">latency_spike</option>
+            </select>
+            <input className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Threshold Label" value={form.thresholdLabel} onChange={e => setForm({ ...form, thresholdLabel: e.target.value })} />
+            <textarea className="min-h-[128px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm" placeholder="Detail" value={form.detail} onChange={e => setForm({ ...form, detail: e.target.value })} />
+            <Button className="h-11 rounded-2xl bg-slate-950 text-white hover:bg-slate-900" disabled={triggerMutation.isPending} onClick={() => {
+              if (!form.detail || !form.thresholdLabel) {
+                toast.error("Bitte Threshold und Detail ausfüllen.");
+                return;
+              }
+              triggerMutation.mutate(form);
+              setForm({ ...form, detail: "" });
+            }}>Guardrail auslösen</Button>
+          </div>
+        </Surface>
+      </div>
+    </div>
+  );
+}
+
+export function ObservabilityPage() {
+  const { data, isLoading, error } = useSnapshot();
+  if (isLoading) return <LoadingState />;
+  if (error || !data) return <ErrorState />;
+
+  const latencyData = data.metrics.map(item => ({ name: item.agentName.split(" ")[0], latency: item.latencyMs, errorRate: item.errorRate }));
+  const costData = data.metrics.map(item => ({ name: item.agentName.split(" ")[0], cost: item.apiCostUsd, tokens: item.tokenUsage / 1000 }));
+
+  return (
+    <div className="space-y-6">
+      <SectionHeader eyebrow="Monitoring" title="Observability & Cost Monitoring" description="Echtzeit-Metriken zu Latenz, Fehlerrate, API-Kosten und Token-Verbrauch verdichten die operative Sicht auf Performance und Wirtschaftlichkeit." />
+      <div className="grid gap-6 xl:grid-cols-2">
+        <Surface className="p-6">
+          <p className="text-sm font-semibold text-slate-950">Latenz und Fehlerrate</p>
+          <div className="mt-6 h-[320px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={latencyData}>
+                <CartesianGrid stroke="#e2e8f0" vertical={false} />
+                <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fill: "#64748b", fontSize: 12 }} />
+                <YAxis tickLine={false} axisLine={false} tick={{ fill: "#64748b", fontSize: 12 }} />
+                <Tooltip />
+                <Bar dataKey="latency" fill="#0f172a" radius={[10, 10, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Surface>
+        <Surface className="p-6">
+          <p className="text-sm font-semibold text-slate-950">Kosten und Token-Verbrauch</p>
+          <div className="mt-6 h-[320px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={costData}>
+                <defs>
+                  <linearGradient id="costGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#334155" stopOpacity={0.32} />
+                    <stop offset="95%" stopColor="#334155" stopOpacity={0.05} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid stroke="#e2e8f0" vertical={false} />
+                <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fill: "#64748b", fontSize: 12 }} />
+                <YAxis tickLine={false} axisLine={false} tick={{ fill: "#64748b", fontSize: 12 }} />
+                <Tooltip />
+                <Area type="monotone" dataKey="cost" stroke="#334155" fill="url(#costGradient)" strokeWidth={2} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </Surface>
+      </div>
+      <Surface className="p-6">
+        <div className="grid gap-4 md:grid-cols-3">
+          {data.metrics.map(item => (
+            <div key={item.id} className="rounded-[24px] border border-slate-200/80 bg-white px-5 py-5 shadow-sm">
+              <p className="text-sm font-semibold text-slate-950">{item.agentName}</p>
+              <div className="mt-4 grid gap-2 text-sm text-slate-600">
+                <div className="flex justify-between"><span>Latenz</span><span className="font-medium text-slate-950">{item.latencyMs} ms</span></div>
+                <div className="flex justify-between"><span>Fehlerrate</span><span className="font-medium text-slate-950">{item.errorRate}%</span></div>
+                <div className="flex justify-between"><span>API-Kosten</span><span className="font-medium text-slate-950">{formatCurrency(item.apiCostUsd)}</span></div>
+                <div className="flex justify-between"><span>Tokens</span><span className="font-medium text-slate-950">{formatNumber(item.tokenUsage)}</span></div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Surface>
+    </div>
+  );
+}
+
+function OverviewPill({ icon, title, description }: { icon: React.ReactNode; title: string; description: string }) {
+  return (
+    <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-4 shadow-sm">
+      <div className="flex items-center gap-3">
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-2 text-slate-700">{icon}</div>
+        <div>
+          <p className="text-sm font-semibold text-slate-950">{title}</p>
+          <p className="mt-1 text-sm text-slate-500">{description}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function Home() {
+  const modules = useMemo(
+    () => [
+      { icon: <BrainCircuit className="h-4 w-4" />, title: "Agenten-Verwaltung", description: "Registrierung, Konfiguration und Status-Monitoring" },
+      { icon: <Shield className="h-4 w-4" />, title: "Policy Engine", description: "Erlaubte, verbotene und freigabepflichtige Aktionen" },
+      { icon: <BellRing className="h-4 w-4" />, title: "Approval Workflow", description: "Menschliche Freigabe für kritische Aktionen" },
+      { icon: <Fingerprint className="h-4 w-4" />, title: "Audit Log", description: "Filterbare Nachvollziehbarkeit aller Ereignisse" },
+      { icon: <Blocks className="h-4 w-4" />, title: "Tool & Connector Layer", description: "CRM-, ERP-, E-Mail-, Browser- und Datenbank-Verbindungen" },
+      { icon: <Activity className="h-4 w-4" />, title: "Runtime Guardrails", description: "Live-Überwachung und automatisches Stoppen" },
+    ],
+    [],
+  );
+
+  return (
+    <div className="space-y-6">
+      <Surface className="overflow-hidden p-0">
+        <div className="relative bg-[radial-gradient(circle_at_top_left,rgba(99,102,241,0.18),transparent_38%),linear-gradient(135deg,#0f172a_0%,#111827_48%,#1e293b_100%)] px-6 py-8 md:px-8 md:py-10">
+          <div className="absolute inset-0 bg-[linear-gradient(120deg,rgba(255,255,255,0.06),transparent_28%,transparent_72%,rgba(255,255,255,0.06))]" />
+          <div className="relative grid gap-8 xl:grid-cols-[1.2fr_0.8fr] xl:items-end">
+            <div>
+              <Badge className="rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-medium text-white hover:bg-white/10">Elegant Enterprise Surface</Badge>
+              <h1 className="mt-5 max-w-4xl text-4xl font-semibold tracking-[-0.06em] text-white md:text-5xl">
+                AI-Agent-Governance- und Operations-Dashboard
+              </h1>
+              <p className="mt-5 max-w-2xl text-sm leading-7 text-slate-300 md:text-base">
+                Eine zentrale Plattform für Steuerung, Überwachung und Absicherung agentischer Systeme – mit Policy Engine, Approval Workflow, Audit Log, Runtime Guardrails und präzisem Kostenmonitoring.
+              </p>
+              <div className="mt-6 flex flex-wrap gap-3">
+                <ModuleBadge label="Governance-ready" tone="success" />
+                <ModuleBadge label="Human-in-the-loop" tone="warning" />
+                <ModuleBadge label="Auditierbar" tone="neutral" />
+              </div>
+            </div>
+            <div className="grid gap-3">
+              <OverviewPill icon={<Sparkles className="h-4 w-4" />} title="Executive visibility" description="Klar priorisierte Kennzahlen und Risikoindikatoren für operative Entscheidungen." />
+              <OverviewPill icon={<Waypoints className="h-4 w-4" />} title="Policy to action traceability" description="Vom Regelwerk über die Aktion bis zur Freigabe bleibt jeder Schritt nachvollziehbar." />
+              <OverviewPill icon={<ChartNoAxesCombined className="h-4 w-4" />} title="Cost-aware runtime operations" description="Kosten, Tokens, Latenz und Fehlerraten sind Teil derselben Steuerungsoberfläche." />
+            </div>
+          </div>
+        </div>
+      </Surface>
+      <DashboardOverviewPage />
+    </div>
+  );
+}
