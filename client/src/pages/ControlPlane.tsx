@@ -1,7 +1,7 @@
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { createDefaultBusinessCalendar, createDefaultSimulationSignals, createEmptyApprovalStageDraft, getLaneLabel, moveStageToDropZone, reorderApprovalChainStages, simulateApprovalChain, simulateApprovalTimeline, type ApprovalBusinessCalendar, type ApprovalChainStageDraft } from "@/lib/approval-chain-editor";
+import { applyCalendarPresetToStages, countStagesMatchingCalendarPreset, createDefaultBusinessCalendar, createDefaultSimulationSignals, createEmptyApprovalStageDraft, createRoleBasedCalendarPresetLibrary, getLaneLabel, moveStageToDropZone, reorderApprovalChainStages, simulateApprovalChain, simulateApprovalTimeline, type ApprovalBusinessCalendar, type ApprovalChainStageDraft } from "@/lib/approval-chain-editor";
 import { Loader2, Shield, Activity, BellRing, BrainCircuit, FileSearch, Blocks, UserCog, Fingerprint, ChartNoAxesCombined, Waypoints, Sparkles, GripVertical } from "lucide-react";
 import { toast } from "sonner";
 import { useMemo, useState } from "react";
@@ -624,6 +624,8 @@ export function ApprovalsPage() {
   const [draggedStageIndex, setDraggedStageIndex] = useState<number | null>(null);
   const [dropStageIndex, setDropStageIndex] = useState<number | null>(null);
   const [simulationSignals, setSimulationSignals] = useState(createDefaultSimulationSignals);
+  const calendarPresetLibrary = useMemo(() => createRoleBasedCalendarPresetLibrary(), []);
+  const [selectedCalendarPresetId, setSelectedCalendarPresetId] = useState(() => createRoleBasedCalendarPresetLibrary()[0]?.id ?? "");
   const [simulationCalendar, setSimulationCalendar] = useState<ApprovalBusinessCalendar>(createDefaultBusinessCalendar);
   const [simulationMinute, setSimulationMinute] = useState(0);
 
@@ -700,9 +702,50 @@ export function ApprovalsPage() {
     }));
   };
 
+  const selectedCalendarPreset = useMemo(() => calendarPresetLibrary.find(preset => preset.id === selectedCalendarPresetId) ?? calendarPresetLibrary[0], [calendarPresetLibrary, selectedCalendarPresetId]);
+  const matchingPresetStages = useMemo(() => (selectedCalendarPreset ? countStagesMatchingCalendarPreset(chainForm.stages, selectedCalendarPreset) : 0), [chainForm.stages, selectedCalendarPreset]);
   const simulationPreview = useMemo(() => simulateApprovalChain(chainForm.stages, simulationSignals), [chainForm.stages, simulationSignals]);
   const timelinePreview = useMemo(() => simulateApprovalTimeline(chainForm.stages, simulationSignals, simulationCalendar), [chainForm.stages, simulationSignals, simulationCalendar]);
   const simulationDuration = useMemo(() => timelinePreview.reduce((max, stage) => Math.max(max, stage.endMinute), 0), [timelinePreview]);
+
+  const applyPresetToSimulation = () => {
+    if (!selectedCalendarPreset) {
+      return;
+    }
+
+    setSimulationCalendar(selectedCalendarPreset.calendar);
+    setSimulationSignals(current => ({
+      ...current,
+      ...selectedCalendarPreset.signalOverrides,
+      riskLevel: selectedCalendarPreset.riskLevel,
+    }));
+    setSimulationMinute(0);
+    toast.success(`Kalenderprofil ${selectedCalendarPreset.label} für die Simulation geladen.`);
+  };
+
+  const applyPresetToMatchingStages = () => {
+    if (!selectedCalendarPreset) {
+      return;
+    }
+
+    setChainForm(current => ({
+      ...current,
+      stages: applyCalendarPresetToStages(current.stages, selectedCalendarPreset),
+    }));
+    setSimulationCalendar(selectedCalendarPreset.calendar);
+    setSimulationSignals(current => ({
+      ...current,
+      ...selectedCalendarPreset.signalOverrides,
+      riskLevel: selectedCalendarPreset.riskLevel,
+    }));
+    setSimulationMinute(0);
+
+    toast.success(
+      matchingPresetStages > 0
+        ? `${matchingPresetStages} Stufe(n) mit Rolle ${selectedCalendarPreset.roleLabel} auf das Profil ${selectedCalendarPreset.label} abgestimmt.`
+        : `Profil ${selectedCalendarPreset.label} geladen. Keine passende Rollenbezeichnung in den Stufen gefunden.`,
+    );
+  };
 
   const saveChain = () => {
     const payload = {
@@ -1050,6 +1093,45 @@ export function ApprovalsPage() {
                     <div className="flex flex-wrap gap-2">
                       <ModuleBadge label={`${simulationCalendar.businessDayStartHour}:00–${simulationCalendar.businessDayEndHour}:00`} tone="neutral" />
                       <ModuleBadge label={`T+${simulationMinute} Min`} tone="success" />
+                    </div>
+                  </div>
+                  <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-950">Bibliothek rollenbasierter SLA- und Risikokalender</p>
+                        <p className="mt-1 text-sm leading-6 text-slate-600">Wähle ein Profil, um Geschäftszeiten, Feiertage und empfohlene SLA-Werte je Rolle und Risikoniveau auf die Simulation oder direkt auf passende Stufen anzuwenden.</p>
+                      </div>
+                      {selectedCalendarPreset ? <ModuleBadge label={`${matchingPresetStages} passende Stufen`} tone={matchingPresetStages > 0 ? "success" : "neutral"} /> : null}
+                    </div>
+                    <div className="mt-4 grid gap-3 lg:grid-cols-[1.2fr_0.8fr]">
+                      <label className="grid gap-2 text-xs font-medium uppercase tracking-[0.16em] text-slate-500">
+                        Kalenderprofil
+                        <select className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-normal tracking-normal text-slate-700" value={selectedCalendarPresetId} onChange={event => setSelectedCalendarPresetId(event.target.value)}>
+                          {calendarPresetLibrary.map(preset => (
+                            <option key={preset.id} value={preset.id}>{preset.label}</option>
+                          ))}
+                        </select>
+                      </label>
+                      {selectedCalendarPreset ? (
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-sm font-semibold text-slate-950">{selectedCalendarPreset.label}</p>
+                            <ModuleBadge label={selectedCalendarPreset.roleLabel} tone="neutral" />
+                            <ModuleBadge label={`Risk ${selectedCalendarPreset.riskLevel}`} tone={selectedCalendarPreset.riskLevel === "critical" ? "danger" : selectedCalendarPreset.riskLevel === "high" ? "warning" : selectedCalendarPreset.riskLevel === "medium" ? "neutral" : "success"} />
+                          </div>
+                          <p className="mt-2 text-sm leading-6 text-slate-600">{selectedCalendarPreset.description}</p>
+                          <div className="mt-3 grid gap-2 text-xs text-slate-500 md:grid-cols-2">
+                            <span>SLA-Standard: {selectedCalendarPreset.defaultSlaMinutes} Min</span>
+                            <span>Eskalation: {selectedCalendarPreset.defaultEscalationMinutes} Min</span>
+                            <span>Geschäftszeit: {selectedCalendarPreset.calendar.businessDayStartHour}:00–{selectedCalendarPreset.calendar.businessDayEndHour}:00</span>
+                            <span>Arbeitstage: {selectedCalendarPreset.calendar.workingDays.join(", ")}</span>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <Button variant="outline" className="rounded-xl border-slate-300" onClick={applyPresetToSimulation}>Profil in Simulation laden</Button>
+                      <Button variant="outline" className="rounded-xl border-slate-300" onClick={applyPresetToMatchingStages}>SLA auf passende Stufen anwenden</Button>
                     </div>
                   </div>
                   <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">

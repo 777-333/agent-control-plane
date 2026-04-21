@@ -150,6 +150,22 @@ export type ApprovalBusinessCalendar = {
   holidayDates: string[];
 };
 
+export type ApprovalCalendarRiskLevel = "low" | "medium" | "high" | "critical";
+
+export type ApprovalCalendarPreset = {
+  id: string;
+  label: string;
+  description: string;
+  roleKey: string;
+  roleLabel: string;
+  roleAliases: string[];
+  riskLevel: ApprovalCalendarRiskLevel;
+  defaultSlaMinutes: number;
+  defaultEscalationMinutes: number;
+  calendar: ApprovalBusinessCalendar;
+  signalOverrides: Partial<ApprovalSimulationSignals>;
+};
+
 export function createDefaultSimulationSignals(): ApprovalSimulationSignals {
   return {
     riskLevel: "critical",
@@ -169,6 +185,152 @@ export function createDefaultBusinessCalendar(): ApprovalBusinessCalendar {
     workingDays: [1, 2, 3, 4, 5],
     holidayDates: ["2026-01-01", "2026-12-25"],
   };
+}
+
+export function createRoleBasedCalendarPresetLibrary(): ApprovalCalendarPreset[] {
+  return [
+    {
+      id: "finance-controller-critical",
+      label: "Finance Controller · Kritisch",
+      description: "Strenges Werktagsfenster für kritische Finanzfreigaben mit kurzer Eskalationskette.",
+      roleKey: "finance",
+      roleLabel: "Finance Controller",
+      roleAliases: ["finance", "finops", "controller", "finance controller", "finance-approver"],
+      riskLevel: "critical",
+      defaultSlaMinutes: 30,
+      defaultEscalationMinutes: 45,
+      calendar: {
+        businessDayStartHour: 8,
+        businessDayEndHour: 18,
+        workingDays: [1, 2, 3, 4, 5],
+        holidayDates: ["2026-01-01", "2026-12-25", "2026-12-26"],
+      },
+      signalOverrides: {
+        riskLevel: "critical",
+        requestedBy: "Finance Sentinel",
+        chainName: "Finance Critical Chain",
+      },
+    },
+    {
+      id: "security-operations-high",
+      label: "Security Operations · Hoch",
+      description: "Nahezu durchgängiges Reaktionsfenster für Sicherheitsereignisse mit hoher Priorität.",
+      roleKey: "security",
+      roleLabel: "Security Operations",
+      roleAliases: ["security", "soc", "secops", "security operations", "security reviewer"],
+      riskLevel: "high",
+      defaultSlaMinutes: 20,
+      defaultEscalationMinutes: 35,
+      calendar: {
+        businessDayStartHour: 0,
+        businessDayEndHour: 24,
+        workingDays: [0, 1, 2, 3, 4, 5, 6],
+        holidayDates: [],
+      },
+      signalOverrides: {
+        riskLevel: "high",
+        requestedBy: "Security Runtime Monitor",
+        chainName: "Security High-Risk Chain",
+      },
+    },
+    {
+      id: "legal-compliance-medium",
+      label: "Legal & Compliance · Mittel",
+      description: "Konservatives Werktagsfenster für Prüfungen mit regulatorischem oder vertraglichem Bezug.",
+      roleKey: "legal",
+      roleLabel: "Legal & Compliance",
+      roleAliases: ["legal", "compliance", "legal counsel", "compliance officer"],
+      riskLevel: "medium",
+      defaultSlaMinutes: 240,
+      defaultEscalationMinutes: 480,
+      calendar: {
+        businessDayStartHour: 9,
+        businessDayEndHour: 17,
+        workingDays: [1, 2, 3, 4, 5],
+        holidayDates: ["2026-01-01", "2026-05-01", "2026-12-25"],
+      },
+      signalOverrides: {
+        riskLevel: "medium",
+        requestedBy: "Compliance Review Desk",
+        chainName: "Legal Review Chain",
+      },
+    },
+    {
+      id: "executive-board-high",
+      label: "Executive Board · Hoch",
+      description: "Vorstandsorientiertes Freigabefenster mit planbaren Geschäftszeiten und klaren Eskalationsmarken.",
+      roleKey: "executive",
+      roleLabel: "Executive Board",
+      roleAliases: ["executive", "board", "cfo", "cio", "cto", "vp", "director"],
+      riskLevel: "high",
+      defaultSlaMinutes: 120,
+      defaultEscalationMinutes: 180,
+      calendar: {
+        businessDayStartHour: 9,
+        businessDayEndHour: 19,
+        workingDays: [1, 2, 3, 4, 5],
+        holidayDates: ["2026-01-01", "2026-12-24", "2026-12-25", "2026-12-31"],
+      },
+      signalOverrides: {
+        riskLevel: "high",
+        requestedBy: "Executive Control Tower",
+        chainName: "Executive Escalation Chain",
+      },
+    },
+    {
+      id: "operations-on-call-critical",
+      label: "Operations On-Call · Kritisch",
+      description: "24/7-Bereitschaftskalender für betriebliche Zwischenfälle und sofortige Eskalation bei kritischen Signalen.",
+      roleKey: "operations",
+      roleLabel: "Operations On-Call",
+      roleAliases: ["operations", "ops", "site reliability", "sre", "platform"],
+      riskLevel: "critical",
+      defaultSlaMinutes: 10,
+      defaultEscalationMinutes: 20,
+      calendar: {
+        businessDayStartHour: 0,
+        businessDayEndHour: 24,
+        workingDays: [0, 1, 2, 3, 4, 5, 6],
+        holidayDates: [],
+      },
+      signalOverrides: {
+        riskLevel: "critical",
+        requestedBy: "Ops Incident Router",
+        chainName: "Ops Incident Chain",
+      },
+    },
+  ];
+}
+
+function normalizeRoleToken(value: string): string {
+  return value.trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
+}
+
+function stageMatchesPresetRole(stage: ApprovalChainStageDraft, preset: ApprovalCalendarPreset): boolean {
+  const stageRole = normalizeRoleToken(stage.requiredRole);
+  return preset.roleAliases.some(alias => stageRole.includes(normalizeRoleToken(alias)));
+}
+
+export function getRoleBasedCalendarPreset(presetId: string): ApprovalCalendarPreset | undefined {
+  return createRoleBasedCalendarPresetLibrary().find(preset => preset.id === presetId);
+}
+
+export function countStagesMatchingCalendarPreset(stages: ApprovalChainStageDraft[], preset: ApprovalCalendarPreset): number {
+  return stages.filter(stage => stageMatchesPresetRole(stage, preset)).length;
+}
+
+export function applyCalendarPresetToStages(stages: ApprovalChainStageDraft[], preset: ApprovalCalendarPreset): ApprovalChainStageDraft[] {
+  return stages.map(stage => {
+    if (!stageMatchesPresetRole(stage, preset)) {
+      return stage;
+    }
+
+    return {
+      ...stage,
+      slaMinutes: preset.defaultSlaMinutes,
+      escalationAfterMinutes: preset.defaultEscalationMinutes,
+    };
+  });
 }
 
 function matchesBranchCondition(stage: ApprovalChainStageDraft, signals: ApprovalSimulationSignals): boolean {

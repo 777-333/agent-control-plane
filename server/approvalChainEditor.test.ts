@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyCalendarPresetToStages,
+  countStagesMatchingCalendarPreset,
   createDefaultBusinessCalendar,
   createDefaultSimulationSignals,
   createEmptyApprovalStageDraft,
+  createRoleBasedCalendarPresetLibrary,
   moveStageToDropZone,
   reorderApprovalChainStages,
   simulateApprovalChain,
@@ -102,6 +105,56 @@ describe("approval chain drag-and-drop helpers", () => {
 
     expect(result).toEqual(stages);
     expect(result).not.toBe(stages);
+  });
+
+  it("exposes a predefined library of role-based SLA and risk calendars", () => {
+    const presets = createRoleBasedCalendarPresetLibrary();
+
+    expect(presets).toHaveLength(5);
+    expect(presets.map(preset => preset.id)).toEqual(expect.arrayContaining([
+      "finance-controller-critical",
+      "security-operations-high",
+      "legal-compliance-medium",
+      "executive-board-high",
+      "operations-on-call-critical",
+    ]));
+    expect(presets[0]).toMatchObject({
+      roleLabel: "Finance Controller",
+      riskLevel: "critical",
+      defaultSlaMinutes: 30,
+      defaultEscalationMinutes: 45,
+    });
+  });
+
+  it("applies preset SLA values only to stages with matching role aliases", () => {
+    const preset = createRoleBasedCalendarPresetLibrary().find(item => item.id === "finance-controller-critical");
+    const stages = [
+      {
+        ...createEmptyApprovalStageDraft(),
+        stageName: "Finance Review",
+        requiredRole: "finance-approver",
+        slaMinutes: 90,
+        escalationAfterMinutes: 120,
+      },
+      {
+        ...createEmptyApprovalStageDraft(),
+        stageName: "Legal Review",
+        requiredRole: "legal",
+        slaMinutes: 180,
+        escalationAfterMinutes: 240,
+      },
+    ];
+
+    expect(preset).toBeDefined();
+    if (!preset) {
+      throw new Error("Expected preset to exist");
+    }
+
+    const updated = applyCalendarPresetToStages(stages, preset);
+
+    expect(countStagesMatchingCalendarPreset(stages, preset)).toBe(1);
+    expect(updated[0]).toMatchObject({ slaMinutes: 30, escalationAfterMinutes: 45 });
+    expect(updated[1]).toMatchObject({ slaMinutes: 180, escalationAfterMinutes: 240 });
   });
 
   it("simulates reachable and skipped stages for the preview panel", () => {
