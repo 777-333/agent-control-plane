@@ -1,7 +1,7 @@
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { applyCalendarPresetToStages, countStagesMatchingCalendarPreset, createDefaultBusinessCalendar, createDefaultSimulationSignals, createEmptyApprovalStageDraft, createRoleBasedCalendarPresetLibrary, getLaneLabel, moveStageToDropZone, reorderApprovalChainStages, simulateApprovalChain, simulateApprovalTimeline, type ApprovalBusinessCalendar, type ApprovalChainStageDraft } from "@/lib/approval-chain-editor";
+import { applyCalendarPresetToStages, countStagesMatchingCalendarPreset, createChainCalendarProfileFromPreset, createDefaultBusinessCalendar, createDefaultChainCalendarProfile, createDefaultSimulationSignals, createEmptyApprovalStageDraft, createRoleBasedCalendarPresetLibrary, getLaneLabel, moveStageToDropZone, reorderApprovalChainStages, simulateApprovalChain, simulateApprovalTimeline, type ApprovalBusinessCalendar, type ApprovalChainCalendarProfile, type ApprovalChainStageDraft } from "@/lib/approval-chain-editor";
 import { Loader2, Shield, Activity, BellRing, BrainCircuit, FileSearch, Blocks, UserCog, Fingerprint, ChartNoAxesCombined, Waypoints, Sparkles, GripVertical } from "lucide-react";
 import { toast } from "sonner";
 import { useMemo, useState } from "react";
@@ -617,6 +617,7 @@ export function ApprovalsPage() {
     name: "",
     description: "",
     escalationMode: "serial" as "serial" | "parallel" | "auto_escalate",
+    calendarProfile: createDefaultChainCalendarProfile(),
     stages: [createEmptyApprovalStageDraft()],
   });
   const [chainForm, setChainForm] = useState(createEmptyChainForm);
@@ -625,8 +626,16 @@ export function ApprovalsPage() {
   const [dropStageIndex, setDropStageIndex] = useState<number | null>(null);
   const [simulationSignals, setSimulationSignals] = useState(createDefaultSimulationSignals);
   const calendarPresetLibrary = useMemo(() => createRoleBasedCalendarPresetLibrary(), []);
-  const [selectedCalendarPresetId, setSelectedCalendarPresetId] = useState(() => createRoleBasedCalendarPresetLibrary()[0]?.id ?? "");
-  const [simulationCalendar, setSimulationCalendar] = useState<ApprovalBusinessCalendar>(createDefaultBusinessCalendar);
+  const [selectedCalendarPresetId, setSelectedCalendarPresetId] = useState(() => createDefaultChainCalendarProfile().presetId);
+  const [simulationCalendar, setSimulationCalendar] = useState<ApprovalBusinessCalendar>(() => {
+    const profile = createDefaultChainCalendarProfile();
+    return {
+      businessDayStartHour: profile.businessDayStartHour,
+      businessDayEndHour: profile.businessDayEndHour,
+      workingDays: [...profile.workingDays],
+      holidayDates: [...profile.holidayDates],
+    };
+  });
   const [simulationMinute, setSimulationMinute] = useState(0);
 
   const resolveMutation = trpc.approvals.resolve.useMutation({
@@ -649,7 +658,15 @@ export function ApprovalsPage() {
   const createChainMutation = trpc.approvals.createChain.useMutation({
     onSuccess: async () => {
       toast.success("Genehmigungskette gespeichert");
-      setChainForm(createEmptyChainForm());
+      const nextForm = createEmptyChainForm();
+      setChainForm(nextForm);
+      setSelectedCalendarPresetId(nextForm.calendarProfile.presetId);
+      setSimulationCalendar({
+        businessDayStartHour: nextForm.calendarProfile.businessDayStartHour,
+        businessDayEndHour: nextForm.calendarProfile.businessDayEndHour,
+        workingDays: [...nextForm.calendarProfile.workingDays],
+        holidayDates: [...nextForm.calendarProfile.holidayDates],
+      });
       await utils.controlPlane.snapshot.invalidate();
     },
   });
@@ -670,11 +687,13 @@ export function ApprovalsPage() {
   if (error || !data) return <ErrorState />;
 
   const loadChain = (chain: (typeof data.approvalChains)[number]) => {
+    const calendarProfile = chain.calendarProfile ?? createDefaultChainCalendarProfile();
     setChainForm({
       id: chain.id,
       name: chain.name,
       description: chain.description,
       escalationMode: chain.escalationMode,
+      calendarProfile,
       stages: chain.stages.map(stage => ({
         stageName: stage.stageName,
         requiredRole: stage.requiredRole,
@@ -693,6 +712,14 @@ export function ApprovalsPage() {
         escalationTargetLabel: stage.escalationTargetLabel,
       })),
     });
+    setSelectedCalendarPresetId(calendarProfile.presetId);
+    setSimulationCalendar({
+      businessDayStartHour: calendarProfile.businessDayStartHour,
+      businessDayEndHour: calendarProfile.businessDayEndHour,
+      workingDays: [...calendarProfile.workingDays],
+      holidayDates: [...calendarProfile.holidayDates],
+    });
+    setSimulationMinute(0);
   };
 
   const updateStage = (stageIndex: number, updater: (stage: ApprovalChainStageDraft) => ApprovalChainStageDraft) => {
@@ -703,6 +730,12 @@ export function ApprovalsPage() {
   };
 
   const selectedCalendarPreset = useMemo(() => calendarPresetLibrary.find(preset => preset.id === selectedCalendarPresetId) ?? calendarPresetLibrary[0], [calendarPresetLibrary, selectedCalendarPresetId]);
+  const updateChainCalendarProfile = (updater: (current: ApprovalChainCalendarProfile) => ApprovalChainCalendarProfile) => {
+    setChainForm(current => ({
+      ...current,
+      calendarProfile: updater(current.calendarProfile),
+    }));
+  };
   const matchingPresetStages = useMemo(() => (selectedCalendarPreset ? countStagesMatchingCalendarPreset(chainForm.stages, selectedCalendarPreset) : 0), [chainForm.stages, selectedCalendarPreset]);
   const simulationPreview = useMemo(() => simulateApprovalChain(chainForm.stages, simulationSignals), [chainForm.stages, simulationSignals]);
   const timelinePreview = useMemo(() => simulateApprovalTimeline(chainForm.stages, simulationSignals, simulationCalendar), [chainForm.stages, simulationSignals, simulationCalendar]);
@@ -713,6 +746,9 @@ export function ApprovalsPage() {
       return;
     }
 
+    const profile = createChainCalendarProfileFromPreset(selectedCalendarPreset);
+    setSelectedCalendarPresetId(profile.presetId);
+    updateChainCalendarProfile(() => profile);
     setSimulationCalendar(selectedCalendarPreset.calendar);
     setSimulationSignals(current => ({
       ...current,
@@ -728,8 +764,11 @@ export function ApprovalsPage() {
       return;
     }
 
+    const profile = createChainCalendarProfileFromPreset(selectedCalendarPreset);
+    setSelectedCalendarPresetId(profile.presetId);
     setChainForm(current => ({
       ...current,
+      calendarProfile: profile,
       stages: applyCalendarPresetToStages(current.stages, selectedCalendarPreset),
     }));
     setSimulationCalendar(selectedCalendarPreset.calendar);
@@ -752,6 +791,7 @@ export function ApprovalsPage() {
       name: chainForm.name,
       description: chainForm.description,
       escalationMode: chainForm.escalationMode,
+      calendarProfile: chainForm.calendarProfile,
       stages: chainForm.stages,
     };
 
@@ -871,7 +911,18 @@ export function ApprovalsPage() {
                 <p className="text-sm font-semibold text-slate-950">Persistente Genehmigungsketten</p>
                 <p className="mt-2 text-sm leading-6 text-slate-600">Benutzer können eigene Freigabemuster mit Eskalationslogik definieren, speichern und später erneut verwenden.</p>
               </div>
-              <Button variant="outline" className="rounded-xl border-slate-300" onClick={() => setChainForm(createEmptyChainForm())}>Neue Kette</Button>
+              <Button variant="outline" className="rounded-xl border-slate-300" onClick={() => {
+                const nextForm = createEmptyChainForm();
+                setChainForm(nextForm);
+                setSelectedCalendarPresetId(nextForm.calendarProfile.presetId);
+                setSimulationCalendar({
+                  businessDayStartHour: nextForm.calendarProfile.businessDayStartHour,
+                  businessDayEndHour: nextForm.calendarProfile.businessDayEndHour,
+                  workingDays: [...nextForm.calendarProfile.workingDays],
+                  holidayDates: [...nextForm.calendarProfile.holidayDates],
+                });
+                setSimulationMinute(0);
+              }}>Neue Kette</Button>
             </div>
             <div className="mt-5 space-y-3">
               {data.approvalChains.map(chain => (
@@ -883,6 +934,7 @@ export function ApprovalsPage() {
                   <p className={`mt-2 text-sm leading-6 ${chainForm.id === chain.id ? "text-slate-200" : "text-slate-600"}`}>{chain.description}</p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <ModuleBadge label={chain.escalationMode} tone="neutral" />
+                    <ModuleBadge label={calendarPresetLibrary.find(preset => preset.id === chain.calendarProfile?.presetId)?.label ?? "Standardkalender"} tone="success" />
                     <ModuleBadge label={`Aktualisiert ${timeAgo(chain.updatedAt)}`} tone="neutral" />
                   </div>
                 </button>
@@ -901,6 +953,9 @@ export function ApprovalsPage() {
             <div className="mt-5 space-y-4">
               <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Name der Genehmigungskette" value={chainForm.name} onChange={e => setChainForm({ ...chainForm, name: e.target.value })} />
               <textarea className="min-h-[108px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm" placeholder="Beschreibung und Einsatzzweck" value={chainForm.description} onChange={e => setChainForm({ ...chainForm, description: e.target.value })} />
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 px-4 py-3 text-sm text-emerald-800">
+                Gespeichertes Kalenderprofil dieser Kette: <span className="font-semibold">{calendarPresetLibrary.find(preset => preset.id === chainForm.calendarProfile.presetId)?.label ?? chainForm.calendarProfile.presetId}</span>
+              </div>
               <select className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm" value={chainForm.escalationMode} onChange={e => setChainForm({ ...chainForm, escalationMode: e.target.value as "serial" | "parallel" | "auto_escalate" })}>
                 <option value="serial">serial</option>
                 <option value="parallel">parallel</option>
@@ -1137,15 +1192,27 @@ export function ApprovalsPage() {
                   <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                     <label className="grid gap-2 text-xs font-medium uppercase tracking-[0.16em] text-slate-500">
                       Start Geschäftszeit
-                      <input type="number" min={0} max={23} className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-normal tracking-normal text-slate-700" value={simulationCalendar.businessDayStartHour} onChange={event => setSimulationCalendar(current => ({ ...current, businessDayStartHour: Number(event.target.value) || 0 }))} />
+                      <input type="number" min={0} max={23} className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-normal tracking-normal text-slate-700" value={simulationCalendar.businessDayStartHour} onChange={event => {
+                        const businessDayStartHour = Number(event.target.value) || 0;
+                        setSimulationCalendar(current => ({ ...current, businessDayStartHour }));
+                        updateChainCalendarProfile(current => ({ ...current, businessDayStartHour }));
+                      }} />
                     </label>
                     <label className="grid gap-2 text-xs font-medium uppercase tracking-[0.16em] text-slate-500">
                       Ende Geschäftszeit
-                      <input type="number" min={1} max={24} className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-normal tracking-normal text-slate-700" value={simulationCalendar.businessDayEndHour} onChange={event => setSimulationCalendar(current => ({ ...current, businessDayEndHour: Number(event.target.value) || 1 }))} />
+                      <input type="number" min={1} max={24} className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-normal tracking-normal text-slate-700" value={simulationCalendar.businessDayEndHour} onChange={event => {
+                        const businessDayEndHour = Number(event.target.value) || 1;
+                        setSimulationCalendar(current => ({ ...current, businessDayEndHour }));
+                        updateChainCalendarProfile(current => ({ ...current, businessDayEndHour }));
+                      }} />
                     </label>
                     <label className="grid gap-2 text-xs font-medium uppercase tracking-[0.16em] text-slate-500 md:col-span-2">
                       Feiertage (YYYY-MM-DD, kommasepariert)
-                      <input className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-normal tracking-normal text-slate-700" value={simulationCalendar.holidayDates.join(", ")} onChange={event => setSimulationCalendar(current => ({ ...current, holidayDates: event.target.value.split(",").map(entry => entry.trim()).filter(Boolean) }))} />
+                      <input className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-normal tracking-normal text-slate-700" value={simulationCalendar.holidayDates.join(", ")} onChange={event => {
+                        const holidayDates = event.target.value.split(",").map(entry => entry.trim()).filter(Boolean);
+                        setSimulationCalendar(current => ({ ...current, holidayDates }));
+                        updateChainCalendarProfile(current => ({ ...current, holidayDates }));
+                      }} />
                     </label>
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500">

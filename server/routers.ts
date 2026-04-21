@@ -111,6 +111,13 @@ export const appRouter = router({
           name: z.string().min(2),
           description: z.string().min(8),
           escalationMode: z.enum(["serial", "parallel", "auto_escalate"]),
+          calendarProfile: z.object({
+            presetId: z.string().min(2),
+            businessDayStartHour: z.number().int().min(0).max(23),
+            businessDayEndHour: z.number().int().min(1).max(24),
+            workingDays: z.array(z.number().int().min(0).max(6)).min(1).max(7),
+            holidayDates: z.array(z.string().min(10).max(10)).max(20),
+          }).optional(),
           stages: z.array(
             z.object({
               stageName: z.string().min(2),
@@ -140,6 +147,13 @@ export const appRouter = router({
           name: z.string().min(2),
           description: z.string().min(8),
           escalationMode: z.enum(["serial", "parallel", "auto_escalate"]),
+          calendarProfile: z.object({
+            presetId: z.string().min(2),
+            businessDayStartHour: z.number().int().min(0).max(23),
+            businessDayEndHour: z.number().int().min(1).max(24),
+            workingDays: z.array(z.number().int().min(0).max(6)).min(1).max(7),
+            holidayDates: z.array(z.string().min(10).max(10)).max(20),
+          }).optional(),
           stages: z.array(
             z.object({
               stageName: z.string().min(2),

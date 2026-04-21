@@ -35,3 +35,4 @@
 - [x] Zeitbasierte Simulation implementieren, die SLA-Verlauf, Eskalationszeitpunkte und zeitliche Übergänge im Genehmigungspfad visualisiert
 - [x] SLA-Kalenderfunktion implementieren, die Geschäftszeiten und Feiertage in der zeitbasierten Simulation berücksichtigt
 - [x] Vordefinierte Bibliothek mit rollenbasierten SLA- und Risikokalendern implementieren und in die Approval-Simulation integrieren
+- [x] Persistente Kalenderprofile pro gespeicherter Genehmigungskette implementieren, speichern und im Approval-Workflow wiederherstellen

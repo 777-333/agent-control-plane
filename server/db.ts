@@ -170,11 +170,20 @@ type ApprovalChainStageTemplateRecord = {
   escalationTargetLabel: string;
 };
 
+type ApprovalChainCalendarProfileRecord = {
+  presetId: string;
+  businessDayStartHour: number;
+  businessDayEndHour: number;
+  workingDays: number[];
+  holidayDates: string[];
+};
+
 type ApprovalChainTemplateRecord = {
   id: number;
   name: string;
   description: string;
   escalationMode: "serial" | "parallel" | "auto_escalate";
+  calendarProfile: ApprovalChainCalendarProfileRecord;
   createdAt: number;
   updatedAt: number;
   stages: ApprovalChainStageTemplateRecord[];
@@ -382,6 +391,13 @@ const approvalChainTemplatesData: ApprovalChainTemplateRecord[] = [
     name: "Finance critical disbursement chain",
     description: "Dreistufiges Freigabemuster für hochkritische ERP-Zahlungen mit CFO- und Legal-Eskalation.",
     escalationMode: "auto_escalate",
+    calendarProfile: {
+      presetId: "finance-controller-critical",
+      businessDayStartHour: 8,
+      businessDayEndHour: 18,
+      workingDays: [1, 2, 3, 4, 5],
+      holidayDates: ["2026-01-01", "2026-12-25", "2026-12-26"],
+    },
     createdAt: now - 1000 * 60 * 60 * 24 * 14,
     updatedAt: now - 1000 * 60 * 70,
     stages: [
@@ -395,6 +411,13 @@ const approvalChainTemplatesData: ApprovalChainTemplateRecord[] = [
     name: "Customer credit escalation chain",
     description: "Zweistufiges Freigabemuster für Kulanzgutschriften mit Customer-Success- und Finance-Review.",
     escalationMode: "serial",
+    calendarProfile: {
+      presetId: "legal-compliance-medium",
+      businessDayStartHour: 9,
+      businessDayEndHour: 17,
+      workingDays: [1, 2, 3, 4, 5],
+      holidayDates: ["2026-01-01", "2026-05-01", "2026-12-25"],
+    },
     createdAt: now - 1000 * 60 * 60 * 24 * 9,
     updatedAt: now - 1000 * 60 * 95,
     stages: [
@@ -638,9 +661,74 @@ const permissionsData: PermissionRecord[] = [
   { id: 4, subject: "Strategy Office", subjectType: "team", agentName: "Research Navigator", permissionLevel: "operator", toolScope: "Browser, Datenbank" },
 ];
 
+const APPROVAL_CHAIN_CALENDAR_MARKER = "<!--ACP_CALENDAR_PROFILE:";
+
+function createDefaultStoredCalendarProfile(): ApprovalChainCalendarProfileRecord {
+  return {
+    presetId: "finance-controller-critical",
+    businessDayStartHour: 9,
+    businessDayEndHour: 17,
+    workingDays: [1, 2, 3, 4, 5],
+    holidayDates: ["2026-01-01", "2026-12-25"],
+  };
+}
+
+function normalizeStoredCalendarProfile(profile?: Partial<ApprovalChainCalendarProfileRecord> | null): ApprovalChainCalendarProfileRecord {
+  const fallback = createDefaultStoredCalendarProfile();
+  return {
+    presetId: profile?.presetId?.trim() || fallback.presetId,
+    businessDayStartHour: profile?.businessDayStartHour ?? fallback.businessDayStartHour,
+    businessDayEndHour: profile?.businessDayEndHour ?? fallback.businessDayEndHour,
+    workingDays: profile?.workingDays?.length ? [...profile.workingDays] : [...fallback.workingDays],
+    holidayDates: profile?.holidayDates?.filter(Boolean) ?? [...fallback.holidayDates],
+  };
+}
+
+function encodeApprovalChainDescription(description: string, calendarProfile: ApprovalChainCalendarProfileRecord): string {
+  const cleanedDescription = description.trim();
+  return `${cleanedDescription}\n${APPROVAL_CHAIN_CALENDAR_MARKER}${JSON.stringify(calendarProfile)}-->`;
+}
+
+function decodeApprovalChainDescription(storedDescription?: string | null) {
+  const raw = storedDescription ?? "";
+  const markerIndex = raw.lastIndexOf(APPROVAL_CHAIN_CALENDAR_MARKER);
+  if (markerIndex === -1) {
+    return {
+      description: raw,
+      calendarProfile: createDefaultStoredCalendarProfile(),
+    };
+  }
+
+  const payloadStart = markerIndex + APPROVAL_CHAIN_CALENDAR_MARKER.length;
+  const payloadEnd = raw.indexOf("-->", payloadStart);
+  if (payloadEnd === -1) {
+    return {
+      description: raw,
+      calendarProfile: createDefaultStoredCalendarProfile(),
+    };
+  }
+
+  try {
+    return {
+      description: raw.slice(0, markerIndex).trim(),
+      calendarProfile: normalizeStoredCalendarProfile(JSON.parse(raw.slice(payloadStart, payloadEnd)) as ApprovalChainCalendarProfileRecord),
+    };
+  } catch {
+    return {
+      description: raw,
+      calendarProfile: createDefaultStoredCalendarProfile(),
+    };
+  }
+}
+
 function cloneApprovalChainTemplate(chain: ApprovalChainTemplateRecord): ApprovalChainTemplateRecord {
   return {
     ...chain,
+    calendarProfile: {
+      ...chain.calendarProfile,
+      workingDays: [...chain.calendarProfile.workingDays],
+      holidayDates: [...chain.calendarProfile.holidayDates],
+    },
     stages: chain.stages.map(stage => ({ ...stage })),
   };
 }
@@ -662,7 +750,7 @@ async function ensureApprovalChainSeeded() {
       approvalChainTemplatesData.map(chain => ({
         id: chain.id,
         name: chain.name,
-        description: chain.description,
+        description: encodeApprovalChainDescription(chain.description, chain.calendarProfile),
         escalationMode: chain.escalationMode,
         createdAt: new Date(chain.createdAt),
         updatedAt: new Date(chain.updatedAt),
@@ -1017,36 +1105,40 @@ export async function listApprovalChains() {
   ]);
 
   return chains
-    .map(chain => ({
-      id: chain.id,
-      name: chain.name,
-      description: chain.description ?? "",
-      escalationMode: chain.escalationMode,
-      createdAt: chain.createdAt.getTime(),
-      updatedAt: chain.updatedAt.getTime(),
-      stages: stages
-        .filter(stage => stage.chainId === chain.id)
-        .sort((a, b) => a.stageOrder - b.stageOrder)
-        .map(stage => ({
-          id: stage.id,
-          stageOrder: stage.stageOrder,
-          stageName: stage.stageName,
-          requiredRole: stage.requiredRole,
-          defaultApproverLabel: stage.defaultApproverLabel,
-          stageMode: stage.stageMode,
-          laneKey: stage.laneKey,
-          branchSourceStageOrder: stage.branchSourceStageOrder,
-          branchLabel: stage.branchLabel,
-          branchField: stage.branchField,
-          branchOperator: stage.branchOperator,
-          branchValue: stage.branchValue,
-          quorumMode: stage.quorumMode,
-          quorumTarget: stage.quorumTarget,
-          slaMinutes: stage.slaMinutes,
-          escalationAfterMinutes: stage.escalationAfterMinutes,
-          escalationTargetLabel: stage.escalationTargetLabel,
-        })),
-    }))
+    .map(chain => {
+      const metadata = decodeApprovalChainDescription(chain.description);
+      return {
+        id: chain.id,
+        name: chain.name,
+        description: metadata.description,
+        escalationMode: chain.escalationMode,
+        calendarProfile: metadata.calendarProfile,
+        createdAt: chain.createdAt.getTime(),
+        updatedAt: chain.updatedAt.getTime(),
+        stages: stages
+          .filter(stage => stage.chainId === chain.id)
+          .sort((a, b) => a.stageOrder - b.stageOrder)
+          .map(stage => ({
+            id: stage.id,
+            stageOrder: stage.stageOrder,
+            stageName: stage.stageName,
+            requiredRole: stage.requiredRole,
+            defaultApproverLabel: stage.defaultApproverLabel,
+            stageMode: stage.stageMode,
+            laneKey: stage.laneKey,
+            branchSourceStageOrder: stage.branchSourceStageOrder,
+            branchLabel: stage.branchLabel,
+            branchField: stage.branchField,
+            branchOperator: stage.branchOperator,
+            branchValue: stage.branchValue,
+            quorumMode: stage.quorumMode,
+            quorumTarget: stage.quorumTarget,
+            slaMinutes: stage.slaMinutes,
+            escalationAfterMinutes: stage.escalationAfterMinutes,
+            escalationTargetLabel: stage.escalationTargetLabel,
+          })),
+      };
+    })
     .sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
@@ -1054,6 +1146,7 @@ export async function createApprovalChainTemplate(input: {
   name: string;
   description: string;
   escalationMode: "serial" | "parallel" | "auto_escalate";
+  calendarProfile?: Partial<ApprovalChainCalendarProfileRecord>;
   stages: Array<{
     stageName: string;
     requiredRole: string;
@@ -1081,6 +1174,7 @@ export async function createApprovalChainTemplate(input: {
       name: input.name,
       description: input.description,
       escalationMode: input.escalationMode,
+      calendarProfile: normalizeStoredCalendarProfile(input.calendarProfile),
       createdAt: timestamp,
       updatedAt: timestamp,
       stages: input.stages.map((stage, index) => ({
@@ -1116,7 +1210,7 @@ export async function createApprovalChainTemplate(input: {
   await db.insert(approvalChains).values({
     id: chainId,
     name: input.name,
-    description: input.description,
+    description: encodeApprovalChainDescription(input.description, normalizeStoredCalendarProfile(input.calendarProfile)),
     escalationMode: input.escalationMode,
     createdAt: new Date(timestamp),
     updatedAt: new Date(timestamp),
@@ -1159,6 +1253,7 @@ export async function updateApprovalChainTemplate(input: {
   name: string;
   description: string;
   escalationMode: "serial" | "parallel" | "auto_escalate";
+  calendarProfile?: Partial<ApprovalChainCalendarProfileRecord>;
   stages: Array<{
     stageName: string;
     requiredRole: string;
@@ -1190,6 +1285,7 @@ export async function updateApprovalChainTemplate(input: {
       name: input.name,
       description: input.description,
       escalationMode: input.escalationMode,
+      calendarProfile: normalizeStoredCalendarProfile(input.calendarProfile),
       createdAt: approvalChainTemplatesData[index]!.createdAt,
       updatedAt: timestamp,
       stages: input.stages.map((stage, idx) => ({
@@ -1223,7 +1319,7 @@ export async function updateApprovalChainTemplate(input: {
 
   await db.update(approvalChains).set({
     name: input.name,
-    description: input.description,
+    description: encodeApprovalChainDescription(input.description, normalizeStoredCalendarProfile(input.calendarProfile)),
     escalationMode: input.escalationMode,
     updatedAt: new Date(timestamp),
   }).where(eq(approvalChains.id, input.id));

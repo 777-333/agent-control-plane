@@ -166,6 +166,10 @@ export type ApprovalCalendarPreset = {
   signalOverrides: Partial<ApprovalSimulationSignals>;
 };
 
+export type ApprovalChainCalendarProfile = ApprovalBusinessCalendar & {
+  presetId: string;
+};
+
 export function createDefaultSimulationSignals(): ApprovalSimulationSignals {
   return {
     riskLevel: "critical",
@@ -184,6 +188,16 @@ export function createDefaultBusinessCalendar(): ApprovalBusinessCalendar {
     businessDayEndHour: 17,
     workingDays: [1, 2, 3, 4, 5],
     holidayDates: ["2026-01-01", "2026-12-25"],
+  };
+}
+
+export function createChainCalendarProfileFromPreset(preset: ApprovalCalendarPreset): ApprovalChainCalendarProfile {
+  return {
+    presetId: preset.id,
+    businessDayStartHour: preset.calendar.businessDayStartHour,
+    businessDayEndHour: preset.calendar.businessDayEndHour,
+    workingDays: [...preset.calendar.workingDays],
+    holidayDates: [...preset.calendar.holidayDates],
   };
 }
 
@@ -309,6 +323,14 @@ function normalizeRoleToken(value: string): string {
 function stageMatchesPresetRole(stage: ApprovalChainStageDraft, preset: ApprovalCalendarPreset): boolean {
   const stageRole = normalizeRoleToken(stage.requiredRole);
   return preset.roleAliases.some(alias => stageRole.includes(normalizeRoleToken(alias)));
+}
+
+export function createDefaultChainCalendarProfile(): ApprovalChainCalendarProfile {
+  const preset = createRoleBasedCalendarPresetLibrary()[0];
+  return preset ? createChainCalendarProfileFromPreset(preset) : {
+    presetId: "custom",
+    ...createDefaultBusinessCalendar(),
+  };
 }
 
 export function getRoleBasedCalendarPreset(presetId: string): ApprovalCalendarPreset | undefined {

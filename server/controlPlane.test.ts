@@ -104,6 +104,13 @@ describe("control plane router", () => {
       name: "Security incident escalation chain",
       description: "Dreistufige Freigabekette für kritische Sicherheitsmaßnahmen mit Eskalation an das Incident Board.",
       escalationMode: "auto_escalate",
+      calendarProfile: {
+        presetId: "security-operations-high",
+        businessDayStartHour: 6,
+        businessDayEndHour: 20,
+        workingDays: [1, 2, 3, 4, 5, 6],
+        holidayDates: ["2026-01-01", "2026-12-25"],
+      },
       stages: [
         {
           stageName: "SOC Triage",
@@ -142,12 +149,25 @@ describe("control plane router", () => {
 
     expect(created.name).toBe("Security incident escalation chain");
     expect(created.stages).toHaveLength(2);
+    expect(created.calendarProfile).toMatchObject({
+      presetId: "security-operations-high",
+      businessDayStartHour: 6,
+      businessDayEndHour: 20,
+      workingDays: [1, 2, 3, 4, 5, 6],
+    });
 
     const updated = await caller.approvals.updateChain({
       id: created.id,
       name: "Security incident escalation chain",
       description: "Aktualisierte Freigabekette für kritische Sicherheitsmaßnahmen mit Executive Escalation.",
       escalationMode: "parallel",
+      calendarProfile: {
+        presetId: "executive-board-high",
+        businessDayStartHour: 8,
+        businessDayEndHour: 19,
+        workingDays: [1, 2, 3, 4, 5],
+        holidayDates: ["2026-01-01", "2026-05-01", "2026-12-25"],
+      },
       stages: [
         {
           stageName: "SOC Triage",
@@ -189,9 +209,22 @@ describe("control plane router", () => {
     expect(updated.escalationMode).toBe("parallel");
     expect(updated.stages[1]?.stageName).toBe("Executive Approval");
     expect(updated.stages[1]?.branchField).toBe("title");
+    expect(updated.calendarProfile).toMatchObject({
+      presetId: "executive-board-high",
+      businessDayStartHour: 8,
+      businessDayEndHour: 19,
+      holidayDates: ["2026-01-01", "2026-05-01", "2026-12-25"],
+    });
 
     const chains = await caller.approvals.chains();
-    expect(chains.some(item => item.id === created.id && item.escalationMode === "parallel")).toBe(true);
+    const persisted = chains.find(item => item.id === created.id);
+    expect(persisted).toBeDefined();
+    expect(persisted?.escalationMode).toBe("parallel");
+    expect(persisted?.calendarProfile).toMatchObject({
+      presetId: "executive-board-high",
+      businessDayStartHour: 8,
+      businessDayEndHour: 19,
+    });
 
     const assigned = await caller.approvals.assignChain({
       approvalId: 2,
