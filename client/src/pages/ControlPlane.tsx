@@ -2,6 +2,7 @@ import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { applyCalendarPresetToStages, countStagesMatchingCalendarPreset, createChainCalendarProfileFromPreset, createDefaultBusinessCalendar, createDefaultChainCalendarProfile, createDefaultSimulationSignals, createEmptyApprovalStageDraft, createRoleBasedCalendarPresetLibrary, getLaneLabel, moveStageToDropZone, reorderApprovalChainStages, simulateApprovalChain, simulateApprovalTimeline, type ApprovalBusinessCalendar, type ApprovalChainCalendarProfile, type ApprovalChainStageDraft } from "@/lib/approval-chain-editor";
+import { getAgentFormValidationMessage, normalizeAgentFormInput, type AgentFormInput } from "@/lib/agent-form";
 import { Loader2, Shield, Activity, BellRing, BrainCircuit, FileSearch, Blocks, UserCog, Fingerprint, ChartNoAxesCombined, Waypoints, Sparkles, GripVertical } from "lucide-react";
 import { toast } from "sonner";
 import { useMemo, useState } from "react";
@@ -134,14 +135,7 @@ function TwoColumnGrid({ left, right }: { left: React.ReactNode; right: React.Re
 }
 
 function useCreateAgentForm() {
-  return useState<{
-    name: string;
-    description: string;
-    team: string;
-    owner: string;
-    model: string;
-    environment: "production" | "staging" | "development";
-  }>({
+  return useState<AgentFormInput>({
     name: "",
     description: "",
     team: "Finance Operations",
@@ -305,13 +299,27 @@ export function DashboardOverviewPage() {
 export function AgentsPage() {
   const utils = trpc.useUtils();
   const { data, isLoading, error } = useSnapshot();
+  const [form, setForm] = useCreateAgentForm();
+  const normalizedForm = normalizeAgentFormInput(form);
+  const trimmedDescription = normalizedForm.description;
+  const isDescriptionTooShort = trimmedDescription.length > 0 && trimmedDescription.length < 10;
   const createMutation = trpc.agents.create.useMutation({
     onSuccess: async () => {
       toast.success("Agent erfolgreich registriert");
+      setForm(prev => ({
+        name: "",
+        description: "",
+        team: prev.team,
+        owner: "",
+        model: prev.model,
+        environment: prev.environment,
+      }));
       await utils.controlPlane.snapshot.invalidate();
     },
+    onError: error => {
+      toast.error(error.message || "Agent konnte nicht registriert werden. Bitte prüfe die Eingaben erneut.");
+    },
   });
-  const [form, setForm] = useCreateAgentForm();
 
   if (isLoading) return <LoadingState />;
   if (error || !data) return <ErrorState />;
@@ -360,7 +368,17 @@ export function AgentsPage() {
           <p className="mt-1 text-sm leading-6 text-slate-500">Lege eine neue Instanz für das Dashboard an und verknüpfe sie später mit Policies, Tool-Zugriffen und Guardrails.</p>
           <div className="mt-5 space-y-4">
             <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none ring-0 placeholder:text-slate-400" placeholder="Agentenname" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
-            <textarea className="min-h-[108px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-950 outline-none placeholder:text-slate-400" placeholder="Beschreibung" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
+            <div className="space-y-2">
+              <textarea className="min-h-[108px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-950 outline-none placeholder:text-slate-400" placeholder="Beschreibung" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
+              <div className="flex items-center justify-between text-xs">
+                <span className={isDescriptionTooShort ? "text-amber-600" : "text-slate-400"}>
+                  Mindestens 10 Zeichen, damit die Servervalidierung erfüllt ist.
+                </span>
+                <span className={trimmedDescription.length >= 10 ? "text-emerald-600" : "text-slate-400"}>
+                  {trimmedDescription.length}/10
+                </span>
+              </div>
+            </div>
             <div className="grid gap-4 md:grid-cols-2">
               <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none placeholder:text-slate-400" placeholder="Team" value={form.team} onChange={e => setForm({ ...form, team: e.target.value })} />
               <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none placeholder:text-slate-400" placeholder="Owner" value={form.owner} onChange={e => setForm({ ...form, owner: e.target.value })} />
@@ -375,12 +393,15 @@ export function AgentsPage() {
               className="h-11 w-full rounded-2xl bg-slate-950 text-white hover:bg-slate-900"
               disabled={createMutation.isPending}
               onClick={() => {
-                if (!form.name || !form.description || !form.owner) {
-                  toast.error("Bitte vervollständige Name, Beschreibung und Owner.");
+                const payload = normalizeAgentFormInput(form);
+                const validationMessage = getAgentFormValidationMessage(payload);
+
+                if (validationMessage) {
+                  toast.error(validationMessage);
                   return;
                 }
-                createMutation.mutate(form);
-                setForm({ name: "", description: "", team: form.team, owner: "", model: form.model, environment: form.environment });
+
+                createMutation.mutate(payload);
               }}
             >
               {createMutation.isPending ? "Registrierung läuft …" : "Agent registrieren"}

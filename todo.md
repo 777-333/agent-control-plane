@@ -40,3 +40,4 @@
 - [x] Datenschutzschicht direkt in alle tatsächlichen LLM-/invokeLLM-Aufrufpfade integrieren und mit Tests absichern
 - [x] Serverseitige Pseudonymisierung auf weitere sensible Freitext-Mutationen sowie Audit-/Notification-Pfade erweitern oder den Funktionsumfang explizit eingrenzen
 - [x] Abdeckungsgrenzen der internationalen Identifier-Erkennung dokumentieren und konfigurierbar erweiterbar machen
+- [x] Validierungsfehler auf /agents beheben, damit Agenten nicht mehr an der Mindestlänge der Beschreibung ohne klare Frontend-Abfanglogik scheitern
