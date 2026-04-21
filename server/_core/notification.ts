@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { ENV } from "./env";
+import { sanitizeTextForPrivacy } from "../privacy";
 
 export type NotificationPayload = {
   title: string;
@@ -23,7 +24,9 @@ const buildEndpointUrl = (baseUrl: string): string => {
   ).toString();
 };
 
-const validatePayload = (input: NotificationPayload): NotificationPayload => {
+export const sanitizeNotificationPayload = (
+  input: NotificationPayload
+): NotificationPayload => {
   if (!isNonEmptyString(input.title)) {
     throw new TRPCError({
       code: "BAD_REQUEST",
@@ -54,7 +57,10 @@ const validatePayload = (input: NotificationPayload): NotificationPayload => {
     });
   }
 
-  return { title, content };
+  return {
+    title: sanitizeTextForPrivacy(title).sanitizedText,
+    content: sanitizeTextForPrivacy(content).sanitizedText,
+  };
 };
 
 /**
@@ -66,7 +72,7 @@ const validatePayload = (input: NotificationPayload): NotificationPayload => {
 export async function notifyOwner(
   payload: NotificationPayload
 ): Promise<boolean> {
-  const { title, content } = validatePayload(payload);
+  const { title, content } = sanitizeNotificationPayload(payload);
 
   if (!ENV.forgeApiUrl) {
     throw new TRPCError({

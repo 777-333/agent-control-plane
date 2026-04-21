@@ -42,6 +42,17 @@ describe("control plane router", () => {
     expect(snapshot.metrics.length).toBeGreaterThan(0);
   });
 
+  it("returns privacy protection metadata in the snapshot", async () => {
+    const caller = appRouter.createCaller(createAuthContext());
+    const snapshot = await caller.controlPlane.snapshot();
+
+    expect(snapshot.privacyProtection.enabled).toBe(true);
+    expect(snapshot.privacyProtection.mode).toBe("pseudonymization_before_ai");
+    expect(snapshot.privacyProtection.coverageModel).toBe("global_heuristic_patterns");
+    expect(snapshot.privacyProtection.configurable).toBe(true);
+    expect(snapshot.privacyProtection.supportedCategories.some(item => item.category === "iban")).toBe(true);
+  });
+
   it("creates a new agent through the protected mutation", async () => {
     const caller = appRouter.createCaller(createAuthContext());
     const created = await caller.agents.create({
@@ -58,6 +69,38 @@ describe("control plane router", () => {
 
     const agents = await caller.agents.list();
     expect(agents.some(agent => agent.name === "Compliance Sentinel")).toBe(true);
+  });
+
+  it("pseudonymizes sensitive identifiers before evaluation and guardrail storage", async () => {
+    const caller = appRouter.createCaller(createAuthContext());
+
+    const evaluation = await caller.evaluations.run({
+      agentId: 1,
+      name: "Privacy regression",
+      expectedOutcome: "Bitte prüfe IBAN DE89370400440532013000 und Steuer-ID 12/345/67890 für max.mustermann@example.de.",
+    });
+
+    expect(evaluation.summary).toContain("[IBAN_1]");
+    expect(evaluation.summary).toContain("[TAX_ID_1]");
+    expect(evaluation.summary).toContain("[EMAIL_1]");
+    expect(evaluation.summary).not.toContain("DE89370400440532013000");
+
+    const guardrail = await caller.guardrails.trigger({
+      agentId: 1,
+      triggerType: "policy_violation",
+      thresholdLabel: "IBAN DE89370400440532013000 erkannt",
+      detail: "Krankenversicherung: AOK99887766 und Personalausweis ABC1234567 müssen redigiert werden.",
+    });
+
+    expect(guardrail.thresholdLabel).toContain("[IBAN_1]");
+    expect(guardrail.detail).toContain("[HEALTH_INSURANCE_1]");
+    expect(guardrail.detail).toContain("[PERSON_ID_1]");
+    expect(guardrail.detail).not.toContain("ABC1234567");
+
+    const auditEvents = await caller.audit.list();
+    const privacyAudit = auditEvents.find(item => item.detail.includes("pseudonymisiert"));
+    expect(privacyAudit).toBeDefined();
+    expect(privacyAudit?.detail).not.toContain("DE89370400440532013000");
   });
 
   it("advances a multistage approval to the next stage instead of closing the workflow immediately", async () => {

@@ -1406,6 +1406,31 @@ export function EvaluationsPage() {
   return (
     <div className="space-y-6">
       <SectionHeader eyebrow="Validation" title="Evaluation Layer" description="Testfälle prüfen, Policy-Konformität messen und Agenten vor dem Deployment gegen definierte Kriterien validieren." />
+      <Surface className="p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-slate-950">Datenschutz vor KI-Auswertung</p>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+              Freitext aus Evaluationsfällen wird vor KI-nahen Prüfpfaden automatisch pseudonymisiert. Erkannt werden strukturierte Identifikatoren wie E-Mail, Telefon, IBAN, Steuer- und Ausweisnummern sowie weitere dokumentenbasierte Kennungen.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <ModuleBadge label={data.privacyProtection.enabled ? "Privacy active" : "Privacy inactive"} tone={data.privacyProtection.enabled ? "success" : "warning"} />
+            <ModuleBadge label={data.privacyProtection.mode} />
+            <ModuleBadge label={data.privacyProtection.strictness} />
+            <ModuleBadge label={data.privacyProtection.coverageModel} />
+            <ModuleBadge label={data.privacyProtection.configurable ? "Extensible rules" : "Fixed rules"} />
+          </div>
+        </div>
+        <p className="mt-4 text-xs leading-5 text-slate-500">{data.privacyProtection.notes}</p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {data.privacyProtection.supportedCategories.slice(0, 6).map(item => (
+            <Badge key={item.category} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-700 shadow-none">
+              {item.label}
+            </Badge>
+          ))}
+        </div>
+      </Surface>
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <Surface className="p-6">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-2">
@@ -1441,6 +1466,7 @@ export function EvaluationsPage() {
             </select>
             <input className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Testfallname" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
             <textarea className="min-h-[128px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm" placeholder="Erwartetes Ergebnis" value={form.expectedOutcome} onChange={e => setForm({ ...form, expectedOutcome: e.target.value })} />
+            <p className="text-xs leading-5 text-slate-500">Personenbezogene Identifikatoren werden vor der weiteren Verarbeitung automatisch pseudonymisiert und in Platzhalterform protokolliert.</p>
             <Button className="h-11 rounded-2xl bg-slate-950 text-white hover:bg-slate-900" disabled={runMutation.isPending} onClick={() => {
               if (!form.name || !form.expectedOutcome) {
                 toast.error("Bitte Testfallname und erwartetes Ergebnis ausfüllen.");
@@ -1472,6 +1498,22 @@ export function GuardrailsPage() {
   return (
     <div className="space-y-6">
       <SectionHeader eyebrow="Runtime safety" title="Runtime Guardrails" description="Live-Überwachung, automatische Stopps und Sichtbarkeit über Policy-Verstöße, Kostenlimits und Anomalien im Betrieb." />
+      <Surface className="p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-slate-950">DSGVO-orientierte Voranonymisierung</p>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+              Guardrail-Ereignisse werden vor KI-naher Analyse und vor der Detailprotokollierung durch eine Pseudonymisierungsschicht geleitet. Dadurch landen sensible Nummernformate nur noch als maskierte Platzhalter in Runtime-Signalen und Audit-Einträgen.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <ModuleBadge label={data.privacyProtection.enabled ? "Privacy active" : "Privacy inactive"} tone={data.privacyProtection.enabled ? "success" : "warning"} />
+            <ModuleBadge label={`${data.privacyProtection.supportedCategories.length} Kategorien`} />
+            <ModuleBadge label={data.privacyProtection.coverageModel} />
+          </div>
+        </div>
+        <p className="mt-4 text-xs leading-5 text-slate-500">{data.privacyProtection.notes}</p>
+      </Surface>
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <Surface className="p-6">
           <div className="space-y-3">
@@ -1509,6 +1551,7 @@ export function GuardrailsPage() {
             </select>
             <input className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Threshold Label" value={form.thresholdLabel} onChange={e => setForm({ ...form, thresholdLabel: e.target.value })} />
             <textarea className="min-h-[128px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm" placeholder="Detail" value={form.detail} onChange={e => setForm({ ...form, detail: e.target.value })} />
+            <p className="text-xs leading-5 text-slate-500">Bevor Guardrail-Details in Runtime-Signale oder KI-nahe Prüfpfade gelangen, werden erkannte Personen- und Nummernkennungen automatisch durch Platzhalter ersetzt.</p>
             <Button className="h-11 rounded-2xl bg-slate-950 text-white hover:bg-slate-900" disabled={triggerMutation.isPending} onClick={() => {
               if (!form.detail || !form.thresholdLabel) {
                 toast.error("Bitte Threshold und Detail ausfüllen.");

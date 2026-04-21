@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { InsertUser, approvalChains, approvalStages, users } from "../drizzle/schema";
 import { ENV } from "./_core/env";
+import { combinePrivacySanitizationResults, getPrivacyProtectionSummary, sanitizeTextForPrivacy, summarizePrivacySanitization } from "./privacy";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -944,6 +945,9 @@ function addAuditEvent(event: Omit<AuditEventRecord, "id" | "createdAt"> & { cre
     id: auditEventsData.length + 1,
     createdAt: event.createdAt ?? Date.now(),
     ...event,
+    title: sanitizeTextForPrivacy(event.title).sanitizedText,
+    detail: sanitizeTextForPrivacy(event.detail).sanitizedText,
+    actorRef: sanitizeTextForPrivacy(event.actorRef).sanitizedText,
   });
 }
 
@@ -1419,6 +1423,7 @@ export async function applyApprovalChainToApproval(input: { approvalId: number; 
 }
 
 export async function resolveApprovalStage(input: { approvalId: number; decision: "approved" | "rejected"; approver: string; note?: string }) {
+  const sanitizedNote = input.note ? sanitizeTextForPrivacy(input.note).sanitizedText : undefined;
   const approval = approvalsData.find(item => item.id === input.approvalId);
   if (!approval) {
     throw new Error("Approval not found");
@@ -1432,7 +1437,7 @@ export async function resolveApprovalStage(input: { approvalId: number; decision
     throw new Error("No actionable approval stage found");
   }
 
-  stage.note = input.note;
+  stage.note = sanitizedNote;
   stage.resolvedAt = Date.now();
 
   if (input.decision === "rejected") {
@@ -1525,6 +1530,7 @@ export async function resolveApprovalStage(input: { approvalId: number; decision
 }
 
 export async function escalateApproval(input: { approvalId: number; triggeredBy: string; reason: string }) {
+  const sanitizedReason = sanitizeTextForPrivacy(input.reason).sanitizedText;
   const approval = approvalsData.find(item => item.id === input.approvalId);
   if (!approval) {
     throw new Error("Approval not found");
@@ -1541,7 +1547,7 @@ export async function escalateApproval(input: { approvalId: number; triggeredBy:
   stage.status = "escalated";
   stage.ownerLabel = stage.escalationTarget;
   stage.escalationTriggeredAt = Date.now();
-  stage.note = input.reason;
+  stage.note = sanitizedReason;
   approval.escalationStatus = "escalated";
 
   addAuditEvent({
@@ -1608,6 +1614,7 @@ export async function createPermission(input: {
 }
 
 export async function createEvaluationRun(input: { agentId: number; name: string; expectedOutcome: string }) {
+  const privacyResult = sanitizeTextForPrivacy(input.expectedOutcome);
   const agent = agentsData.find(item => item.id === input.agentId);
   if (!agent) {
     throw new Error("Agent not found");
@@ -1625,7 +1632,7 @@ export async function createEvaluationRun(input: { agentId: number; name: string
     status,
     score,
     policyPassRate,
-    summary: `Pre-Deployment-Prüfung für ${agent.name}: ${input.expectedOutcome}`,
+    summary: `Pre-Deployment-Prüfung für ${agent.name}: ${privacyResult.sanitizedText}`,
     executedAt: Date.now(),
   };
 
@@ -1636,7 +1643,9 @@ export async function createEvaluationRun(input: { agentId: number; name: string
     severity: "info",
     category: "Evaluation Layer",
     title: "Pre-Deployment-Evaluation gestartet",
-    detail: `Die Testsuite \"${input.name}\" wurde für ${agent.name} ausgeführt.`,
+    detail: privacyResult.containsSensitiveData
+      ? `Die Testsuite "${input.name}" wurde für ${agent.name} ausgeführt. ${summarizePrivacySanitization(privacyResult)}`
+      : `Die Testsuite "${input.name}" wurde für ${agent.name} ausgeführt.`,
     actorType: "user",
     actorRef: "evaluation-console",
   });
@@ -1645,6 +1654,9 @@ export async function createEvaluationRun(input: { agentId: number; name: string
 }
 
 export async function createGuardrailEvent(input: { agentId: number; triggerType: string; thresholdLabel: string; detail: string }) {
+  const sanitizedThreshold = sanitizeTextForPrivacy(input.thresholdLabel);
+  const sanitizedDetail = sanitizeTextForPrivacy(input.detail);
+  const combinedPrivacyResult = combinePrivacySanitizationResults(sanitizedThreshold, sanitizedDetail);
   const agent = agentsData.find(item => item.id === input.agentId);
   if (!agent) {
     throw new Error("Agent not found");
@@ -1656,8 +1668,8 @@ export async function createGuardrailEvent(input: { agentId: number; triggerType
     agentName: agent.name,
     triggerType: input.triggerType,
     status: "stopped",
-    thresholdLabel: input.thresholdLabel,
-    detail: input.detail,
+    thresholdLabel: sanitizedThreshold.sanitizedText,
+    detail: sanitizedDetail.sanitizedText,
     createdAt: Date.now(),
   };
 
@@ -1669,7 +1681,9 @@ export async function createGuardrailEvent(input: { agentId: number; triggerType
     severity: "critical",
     category: "Runtime Guardrails",
     title: "Agent automatisch gestoppt",
-    detail: `${agent.name} wurde aufgrund des Triggers ${input.triggerType} automatisch pausiert.`,
+    detail: combinedPrivacyResult.containsSensitiveData
+      ? `${agent.name} wurde aufgrund des Triggers ${input.triggerType} automatisch pausiert. ${summarizePrivacySanitization(combinedPrivacyResult)}`
+      : `${agent.name} wurde aufgrund des Triggers ${input.triggerType} automatisch pausiert.`,
     actorType: "system",
     actorRef: "guardrail-engine",
   });
@@ -1697,5 +1711,6 @@ export async function getControlPlaneSnapshot() {
     guardrails: await listGuardrailEvents(),
     metrics: await listMetricSnapshots(),
     access: await getAccessOverview(),
+    privacyProtection: getPrivacyProtectionSummary(),
   };
 }

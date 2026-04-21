@@ -36,3 +36,7 @@
 - [x] SLA-Kalenderfunktion implementieren, die Geschäftszeiten und Feiertage in der zeitbasierten Simulation berücksichtigt
 - [x] Vordefinierte Bibliothek mit rollenbasierten SLA- und Risikokalendern implementieren und in die Approval-Simulation integrieren
 - [x] Persistente Kalenderprofile pro gespeicherter Genehmigungskette implementieren, speichern und im Approval-Workflow wiederherstellen
+- [x] DSGVO-orientierte Anonymisierungsschicht vor KI-Verarbeitung integrieren, um personenbezogene und nummernbasierte Identifikatoren vor Guardrails/LLM-Aufrufen zu pseudonymisieren
+- [x] Datenschutzschicht direkt in alle tatsächlichen LLM-/invokeLLM-Aufrufpfade integrieren und mit Tests absichern
+- [x] Serverseitige Pseudonymisierung auf weitere sensible Freitext-Mutationen sowie Audit-/Notification-Pfade erweitern oder den Funktionsumfang explizit eingrenzen
+- [x] Abdeckungsgrenzen der internationalen Identifier-Erkennung dokumentieren und konfigurierbar erweiterbar machen

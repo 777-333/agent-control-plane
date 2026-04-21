@@ -1,4 +1,5 @@
 import { ENV } from "./env";
+import { sanitizeTextForPrivacy } from "../privacy";
 
 export type Role = "system" | "user" | "assistant" | "tool" | "function";
 
@@ -135,6 +136,33 @@ const normalizeContentPart = (
 
   throw new Error("Unsupported message content part");
 };
+
+const sanitizeMessageContent = (
+  content: MessageContent | MessageContent[]
+): MessageContent | MessageContent[] => {
+  const sanitizedParts = ensureArray(content).map(part => {
+    if (typeof part === "string") {
+      return sanitizeTextForPrivacy(part).sanitizedText;
+    }
+
+    if (part.type === "text") {
+      return {
+        ...part,
+        text: sanitizeTextForPrivacy(part.text).sanitizedText,
+      } satisfies TextContent;
+    }
+
+    return part;
+  });
+
+  return Array.isArray(content) ? sanitizedParts : sanitizedParts[0]!;
+};
+
+export const sanitizeMessagesForPrivacy = (messages: Message[]): Message[] =>
+  messages.map(message => ({
+    ...message,
+    content: sanitizeMessageContent(message.content),
+  }));
 
 const normalizeMessage = (message: Message) => {
   const { role, name, tool_call_id } = message;
@@ -279,9 +307,11 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     response_format,
   } = params;
 
+  const sanitizedMessages = sanitizeMessagesForPrivacy(messages);
+
   const payload: Record<string, unknown> = {
     model: "gemini-2.5-flash",
-    messages: messages.map(normalizeMessage),
+    messages: sanitizedMessages.map(normalizeMessage),
   };
 
   if (tools && tools.length > 0) {
