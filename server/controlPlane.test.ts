@@ -53,7 +53,7 @@ describe("control plane router", () => {
     expect(snapshot.privacyProtection.supportedCategories.some(item => item.category === "iban")).toBe(true);
   });
 
-  it("creates a new agent through the protected mutation", async () => {
+  it("creates, updates and duplicates agents through the protected mutations", async () => {
     const caller = appRouter.createCaller(createAuthContext());
     const created = await caller.agents.create({
       name: "Compliance Sentinel",
@@ -67,8 +67,35 @@ describe("control plane router", () => {
     expect(created.name).toBe("Compliance Sentinel");
     expect(created.environment).toBe("staging");
 
+    const updated = await caller.agents.update({
+      id: created.id,
+      name: "Compliance Sentinel Prime",
+      description: "Überwacht regulatorische Agentenaktionen mit erweitertem Eskalations- und Auditfokus.",
+      team: "Governance",
+      owner: "Sample User",
+      model: "gpt-4.1",
+      environment: "production",
+    });
+
+    expect(updated.name).toBe("Compliance Sentinel Prime");
+    expect(updated.environment).toBe("production");
+
+    const duplicate = await caller.agents.duplicate({
+      sourceAgentId: updated.id,
+      name: `${updated.name} Kopie`,
+      description: updated.description,
+      team: updated.team,
+      owner: updated.owner,
+      model: updated.model,
+      environment: "production",
+    });
+
+    expect(duplicate.id).not.toBe(updated.id);
+    expect(duplicate.name).toBe("Compliance Sentinel Prime Kopie");
+
     const agents = await caller.agents.list();
-    expect(agents.some(agent => agent.name === "Compliance Sentinel")).toBe(true);
+    expect(agents.some(agent => agent.name === "Compliance Sentinel Prime")).toBe(true);
+    expect(agents.some(agent => agent.name === "Compliance Sentinel Prime Kopie")).toBe(true);
   });
 
   it("pseudonymizes sensitive identifiers before evaluation and guardrail storage", async () => {

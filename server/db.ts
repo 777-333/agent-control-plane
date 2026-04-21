@@ -1037,14 +1037,16 @@ export async function listAgents() {
   return [...agentsData].sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export async function createAgent(input: {
+type AgentMutationInput = {
   name: string;
   description: string;
   team: string;
   owner: string;
   model: string;
   environment: string;
-}) {
+};
+
+export async function createAgent(input: AgentMutationInput) {
   const newAgent: AgentRecord = {
     id: nextAgentId++,
     name: input.name,
@@ -1064,6 +1066,51 @@ export async function createAgent(input: {
   };
   agentsData.unshift(newAgent);
   return newAgent;
+}
+
+export async function updateAgent(input: AgentMutationInput & { id: number }) {
+  const existingAgent = agentsData.find(agent => agent.id === input.id);
+
+  if (!existingAgent) {
+    throw new Error(`Agent ${input.id} wurde nicht gefunden.`);
+  }
+
+  existingAgent.name = input.name;
+  existingAgent.description = input.description;
+  existingAgent.team = input.team;
+  existingAgent.owner = input.owner;
+  existingAgent.model = input.model;
+  existingAgent.environment = input.environment;
+  existingAgent.lastHeartbeat = Date.now();
+
+  return existingAgent;
+}
+
+export async function duplicateAgent(input: AgentMutationInput & { sourceAgentId: number }) {
+  const sourceAgent = agentsData.find(agent => agent.id === input.sourceAgentId);
+
+  if (!sourceAgent) {
+    throw new Error(`Agent ${input.sourceAgentId} wurde nicht gefunden.`);
+  }
+
+  const duplicatedAgent: AgentRecord = {
+    ...sourceAgent,
+    id: nextAgentId++,
+    name: input.name,
+    description: input.description,
+    team: input.team,
+    owner: input.owner,
+    model: input.model,
+    environment: input.environment,
+    status: "healthy",
+    lastHeartbeat: Date.now(),
+    monthlyCostUsd: 0,
+    tokenUsage: 0,
+    tools: [...sourceAgent.tools],
+  };
+
+  agentsData.unshift(duplicatedAgent);
+  return duplicatedAgent;
 }
 
 export async function listPolicies() {

@@ -6,6 +6,8 @@ import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import {
   applyApprovalChainToApproval,
   createAgent,
+  duplicateAgent,
+  updateAgent,
   createApprovalChainTemplate,
   createEvaluationRun,
   createGuardrailEvent,
@@ -62,6 +64,32 @@ export const appRouter = router({
         }),
       )
       .mutation(async ({ input }) => createAgent(input)),
+    update: protectedProcedure
+      .input(
+        z.object({
+          id: z.number().int(),
+          name: z.string().min(2),
+          description: z.string().min(10),
+          team: z.string().min(2),
+          owner: z.string().min(2),
+          model: z.string().min(2),
+          environment: z.enum(["production", "staging", "development"]),
+        }),
+      )
+      .mutation(async ({ input }) => updateAgent(input)),
+    duplicate: protectedProcedure
+      .input(
+        z.object({
+          sourceAgentId: z.number().int(),
+          name: z.string().min(2),
+          description: z.string().min(10),
+          team: z.string().min(2),
+          owner: z.string().min(2),
+          model: z.string().min(2),
+          environment: z.enum(["production", "staging", "development"]),
+        }),
+      )
+      .mutation(async ({ input }) => duplicateAgent(input)),
   }),
   policies: router({
     list: protectedProcedure.query(async () => listPolicies()),

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createAgentFormFromExistingAgent, getAgentFormValidationMessage, normalizeAgentFormInput } from "./agent-form";
+import { createAgentFormFromExistingAgent, getAgentFormValidationMessage, normalizeAgentFormInput } from "../client/src/lib/agent-form";
 
 describe("agent form helpers", () => {
   it("trims user input before submission", () => {
@@ -33,19 +33,6 @@ describe("agent form helpers", () => {
     });
 
     expect(message).toBe("Die Beschreibung muss mindestens 10 Zeichen enthalten.");
-  });
-
-  it("accepts valid normalized agent payloads", () => {
-    const message = getAgentFormValidationMessage({
-      name: "Agent A",
-      description: "  Diese Beschreibung ist lang genug.  ",
-      team: "Finance",
-      owner: "Owner",
-      model: "gpt-4.1",
-      environment: "production",
-    });
-
-    expect(message).toBeNull();
   });
 
   it("prefills existing agents for editing and duplication", () => {

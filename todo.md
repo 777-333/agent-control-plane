@@ -41,3 +41,6 @@
 - [x] Serverseitige Pseudonymisierung auf weitere sensible Freitext-Mutationen sowie Audit-/Notification-Pfade erweitern oder den Funktionsumfang explizit eingrenzen
 - [x] Abdeckungsgrenzen der internationalen Identifier-Erkennung dokumentieren und konfigurierbar erweiterbar machen
 - [x] Validierungsfehler auf /agents beheben, damit Agenten nicht mehr an der Mindestlänge der Beschreibung ohne klare Frontend-Abfanglogik scheitern
+- [x] Bearbeitungs-Workflow für bestehende Agenten in der Agenten-Verwaltung implementieren
+- [x] Duplizierungs-Workflow für bestehende Agenten mit vorbelegtem Formular und neuer Speicherung implementieren
+- [x] Dedizierte Agenten-Duplizierungsmutation ergänzen und mit Prefill-/Speicherfluss explizit absichern

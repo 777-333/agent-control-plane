@@ -2,7 +2,7 @@ import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { applyCalendarPresetToStages, countStagesMatchingCalendarPreset, createChainCalendarProfileFromPreset, createDefaultBusinessCalendar, createDefaultChainCalendarProfile, createDefaultSimulationSignals, createEmptyApprovalStageDraft, createRoleBasedCalendarPresetLibrary, getLaneLabel, moveStageToDropZone, reorderApprovalChainStages, simulateApprovalChain, simulateApprovalTimeline, type ApprovalBusinessCalendar, type ApprovalChainCalendarProfile, type ApprovalChainStageDraft } from "@/lib/approval-chain-editor";
-import { getAgentFormValidationMessage, normalizeAgentFormInput, type AgentFormInput } from "@/lib/agent-form";
+import { createAgentFormFromExistingAgent, createDefaultAgentForm, getAgentFormValidationMessage, normalizeAgentFormInput, type AgentFormInput } from "@/lib/agent-form";
 import { Loader2, Shield, Activity, BellRing, BrainCircuit, FileSearch, Blocks, UserCog, Fingerprint, ChartNoAxesCombined, Waypoints, Sparkles, GripVertical } from "lucide-react";
 import { toast } from "sonner";
 import { useMemo, useState } from "react";
@@ -135,14 +135,7 @@ function TwoColumnGrid({ left, right }: { left: React.ReactNode; right: React.Re
 }
 
 function useCreateAgentForm() {
-  return useState<AgentFormInput>({
-    name: "",
-    description: "",
-    team: "Finance Operations",
-    owner: "",
-    model: "gpt-4.1",
-    environment: "production",
-  });
+  return useState<AgentFormInput>(createDefaultAgentForm());
 }
 
 export function DashboardOverviewPage() {
@@ -300,24 +293,46 @@ export function AgentsPage() {
   const utils = trpc.useUtils();
   const { data, isLoading, error } = useSnapshot();
   const [form, setForm] = useCreateAgentForm();
+  const [editingAgentId, setEditingAgentId] = useState<number | null>(null);
+  const [isDuplicateMode, setIsDuplicateMode] = useState(false);
   const normalizedForm = normalizeAgentFormInput(form);
   const trimmedDescription = normalizedForm.description;
   const isDescriptionTooShort = trimmedDescription.length > 0 && trimmedDescription.length < 10;
+  const isEditing = editingAgentId !== null && !isDuplicateMode;
+  const isDuplicating = editingAgentId !== null && isDuplicateMode;
+  const resetForm = () => {
+    setForm(createDefaultAgentForm());
+    setEditingAgentId(null);
+    setIsDuplicateMode(false);
+  };
   const createMutation = trpc.agents.create.useMutation({
     onSuccess: async () => {
       toast.success("Agent erfolgreich registriert");
-      setForm(prev => ({
-        name: "",
-        description: "",
-        team: prev.team,
-        owner: "",
-        model: prev.model,
-        environment: prev.environment,
-      }));
+      resetForm();
       await utils.controlPlane.snapshot.invalidate();
     },
     onError: error => {
-      toast.error(error.message || "Agent konnte nicht registriert werden. Bitte prüfe die Eingaben erneut.");
+      toast.error(error.message || "Agent konnte nicht gespeichert werden. Bitte prüfe die Eingaben erneut.");
+    },
+  });
+  const duplicateMutation = trpc.agents.duplicate.useMutation({
+    onSuccess: async () => {
+      toast.success("Agent erfolgreich dupliziert");
+      resetForm();
+      await utils.controlPlane.snapshot.invalidate();
+    },
+    onError: error => {
+      toast.error(error.message || "Agent konnte nicht dupliziert werden. Bitte prüfe die Eingaben erneut.");
+    },
+  });
+  const updateMutation = trpc.agents.update.useMutation({
+    onSuccess: async () => {
+      toast.success("Agent erfolgreich aktualisiert");
+      resetForm();
+      await utils.controlPlane.snapshot.invalidate();
+    },
+    onError: error => {
+      toast.error(error.message || "Agent konnte nicht aktualisiert werden. Bitte prüfe die Eingaben erneut.");
     },
   });
 
@@ -329,7 +344,7 @@ export function AgentsPage() {
       <SectionHeader
         eyebrow="Operations"
         title="Agenten-Verwaltung"
-        description="Registriere Agenten, konfiguriere Modell- und Umgebungsparameter und überwache den operativen Gesundheitszustand in Echtzeit."
+        description="Registriere Agenten, bearbeite bestehende Konfigurationen und dupliziere bewährte Setups für neue Instanzen in Echtzeit."
         actions={<ModuleBadge label={`${data.agents.length} registriert`} />}
       />
 
@@ -349,6 +364,30 @@ export function AgentsPage() {
                     <div className="mt-4 flex flex-wrap gap-2">
                       {agent.tools.map(tool => <ModuleBadge key={tool} label={tool} />)}
                     </div>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                        onClick={() => {
+                          setForm(createAgentFormFromExistingAgent(agent, "edit"));
+                          setEditingAgentId(agent.id);
+                          setIsDuplicateMode(false);
+                        }}
+                      >
+                        Bearbeiten
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                        onClick={() => {
+                          setForm(createAgentFormFromExistingAgent(agent, "duplicate"));
+                          setEditingAgentId(agent.id);
+                          setIsDuplicateMode(true);
+                        }}
+                      >
+                        Duplizieren
+                      </button>
+                    </div>
                   </div>
                   <div className="grid min-w-[230px] gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
                     <div className="flex justify-between"><span>Team</span><span className="font-medium text-slate-950">{agent.team}</span></div>
@@ -364,8 +403,21 @@ export function AgentsPage() {
         </Surface>
 
         <Surface className="p-6">
-          <p className="text-sm font-semibold text-slate-950">Neuen Agenten registrieren</p>
-          <p className="mt-1 text-sm leading-6 text-slate-500">Lege eine neue Instanz für das Dashboard an und verknüpfe sie später mit Policies, Tool-Zugriffen und Guardrails.</p>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-slate-950">
+                {isEditing ? "Agent bearbeiten" : isDuplicating ? "Agent duplizieren" : "Neuen Agenten registrieren"}
+              </p>
+              <p className="mt-1 text-sm leading-6 text-slate-500">
+                {isEditing
+                  ? "Passe Name, Verantwortliche und Modellparameter eines bestehenden Agents an und speichere die Änderungen direkt zurück in die Flotte."
+                  : isDuplicating
+                    ? "Übernimm ein bestehendes Agenten-Setup als Vorlage, passe Details an und speichere daraus eine neue Instanz."
+                    : "Lege eine neue Instanz für das Dashboard an und verknüpfe sie später mit Policies, Tool-Zugriffen und Guardrails."}
+              </p>
+            </div>
+            {(isEditing || isDuplicating) && <ModuleBadge label={isEditing ? "Edit-Modus" : "Duplikat-Modus"} />}
+          </div>
           <div className="mt-5 space-y-4">
             <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none ring-0 placeholder:text-slate-400" placeholder="Agentenname" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
             <div className="space-y-2">
@@ -389,23 +441,54 @@ export function AgentsPage() {
                 <option value="development">development</option>
               </select>
             </div>
-            <Button
-              className="h-11 w-full rounded-2xl bg-slate-950 text-white hover:bg-slate-900"
-              disabled={createMutation.isPending}
-              onClick={() => {
-                const payload = normalizeAgentFormInput(form);
-                const validationMessage = getAgentFormValidationMessage(payload);
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <Button
+                className="h-11 flex-1 rounded-2xl bg-slate-950 text-white hover:bg-slate-900"
+                disabled={createMutation.isPending || duplicateMutation.isPending || updateMutation.isPending}
+                onClick={() => {
+                  const payload = normalizeAgentFormInput(form);
+                  const validationMessage = getAgentFormValidationMessage(payload);
 
-                if (validationMessage) {
-                  toast.error(validationMessage);
-                  return;
-                }
+                  if (validationMessage) {
+                    toast.error(validationMessage);
+                    return;
+                  }
 
-                createMutation.mutate(payload);
-              }}
-            >
-              {createMutation.isPending ? "Registrierung läuft …" : "Agent registrieren"}
-            </Button>
+                  if (isEditing && editingAgentId !== null) {
+                    updateMutation.mutate({ id: editingAgentId, ...payload });
+                    return;
+                  }
+
+                  if (isDuplicating && editingAgentId !== null) {
+                    duplicateMutation.mutate({ sourceAgentId: editingAgentId, ...payload });
+                    return;
+                  }
+
+                  createMutation.mutate(payload);
+                }}
+              >
+                {updateMutation.isPending
+                  ? "Änderungen werden gespeichert …"
+                  : duplicateMutation.isPending
+                    ? "Duplikat wird gespeichert …"
+                    : createMutation.isPending
+                      ? "Registrierung läuft …"
+                      : isEditing
+                        ? "Änderungen speichern"
+                        : isDuplicating
+                          ? "Duplikat speichern"
+                          : "Agent registrieren"}
+              </Button>
+              {(isEditing || isDuplicating) && (
+                <Button
+                  className="h-11 rounded-2xl border border-slate-200 bg-white px-5 text-slate-700 hover:bg-slate-50"
+                  disabled={createMutation.isPending || duplicateMutation.isPending || updateMutation.isPending}
+                  onClick={resetForm}
+                >
+                  Abbrechen
+                </Button>
+              )}
+            </div>
           </div>
         </Surface>
       </div>
