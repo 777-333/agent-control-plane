@@ -13,6 +13,7 @@ import {
   createGuardrailEvent,
   createPermission,
   createPolicy,
+  createPrivacyRule,
   createTeam,
   getAccessOverview,
   getControlPlaneSnapshot,
@@ -26,6 +27,8 @@ import {
   listGuardrailEvents,
   listMetricSnapshots,
   listPolicies,
+  listPrivacyRules,
+  removePrivacyRule,
   resolveApprovalStage,
   escalateApproval,
   updateApprovalChainTemplate,
@@ -298,6 +301,29 @@ export const appRouter = router({
         }),
       )
       .mutation(async ({ input }) => createGuardrailEvent(input)),
+  }),
+  privacyRules: router({
+    list: protectedProcedure.query(async () => listPrivacyRules()),
+    create: protectedProcedure
+      .input(
+        z.object({
+          name: z.string().min(2),
+          kind: z.enum(["contextual", "regex"]),
+          category: z.enum(["email", "phone", "iban", "bank_account", "tax_identifier", "personal_identifier", "drivers_license", "health_insurance", "passport", "payment_card"]),
+          keywords: z.array(z.string().min(1)).optional(),
+          pattern: z.string().optional(),
+          flags: z.string().optional(),
+          validator: z.enum(["none", "phone", "iban", "payment_card"]).optional(),
+        }),
+      )
+      .mutation(async ({ input }) => createPrivacyRule(input)),
+    remove: protectedProcedure
+      .input(
+        z.object({
+          id: z.number().int(),
+        }),
+      )
+      .mutation(async ({ input }) => removePrivacyRule(input)),
   }),
   observability: router({
     metrics: protectedProcedure.query(async () => listMetricSnapshots()),

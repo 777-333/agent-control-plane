@@ -2,7 +2,16 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { InsertUser, approvalChains, approvalStages, users } from "../drizzle/schema";
 import { ENV } from "./_core/env";
-import { combinePrivacySanitizationResults, getPrivacyProtectionSummary, sanitizeTextForPrivacy, summarizePrivacySanitization } from "./privacy";
+import {
+  combinePrivacySanitizationResults,
+  createCustomPrivacyRule,
+  deleteCustomPrivacyRule,
+  getPrivacyProtectionSummary,
+  listCustomPrivacyRules,
+  sanitizeTextForPrivacy,
+  summarizePrivacySanitization,
+  type PrivacyRuleInput,
+} from "./privacy";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -1745,6 +1754,18 @@ export async function getAccessOverview() {
   };
 }
 
+export async function listPrivacyRules() {
+  return listCustomPrivacyRules();
+}
+
+export async function createPrivacyRule(input: PrivacyRuleInput) {
+  return createCustomPrivacyRule(input);
+}
+
+export async function removePrivacyRule(input: { id: number }) {
+  return deleteCustomPrivacyRule(input.id);
+}
+
 export async function getControlPlaneSnapshot() {
   return {
     dashboard: await getDashboardOverview(),
@@ -1759,5 +1780,6 @@ export async function getControlPlaneSnapshot() {
     metrics: await listMetricSnapshots(),
     access: await getAccessOverview(),
     privacyProtection: getPrivacyProtectionSummary(),
+    privacyRules: await listPrivacyRules(),
   };
 }

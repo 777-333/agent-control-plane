@@ -1595,7 +1595,34 @@ export function GuardrailsPage() {
       await utils.controlPlane.snapshot.invalidate();
     },
   });
+  const createPrivacyRuleMutation = trpc.privacyRules.create.useMutation({
+    onSuccess: async () => {
+      toast.success("Datenschutzregel gespeichert");
+      await utils.controlPlane.snapshot.invalidate();
+    },
+    onError: error => {
+      toast.error(error.message || "Die Datenschutzregel konnte nicht gespeichert werden.");
+    },
+  });
+  const removePrivacyRuleMutation = trpc.privacyRules.remove.useMutation({
+    onSuccess: async () => {
+      toast.success("Datenschutzregel entfernt");
+      await utils.controlPlane.snapshot.invalidate();
+    },
+    onError: error => {
+      toast.error(error.message || "Die Datenschutzregel konnte nicht entfernt werden.");
+    },
+  });
   const [form, setForm] = useState({ agentId: 1, triggerType: "cost_threshold", thresholdLabel: "Budget > 25 USD", detail: "" });
+  const [ruleForm, setRuleForm] = useState({
+    name: "",
+    kind: "contextual" as "contextual" | "regex",
+    category: "tax_identifier" as "email" | "phone" | "iban" | "bank_account" | "tax_identifier" | "personal_identifier" | "drivers_license" | "health_insurance" | "passport" | "payment_card",
+    keywordsText: "",
+    pattern: "",
+    flags: "giu",
+    validator: "none" as "none" | "phone" | "iban" | "payment_card",
+  });
   if (isLoading) return <LoadingState />;
   if (error || !data) return <ErrorState />;
 
@@ -1613,11 +1640,144 @@ export function GuardrailsPage() {
           <div className="flex flex-wrap gap-2">
             <ModuleBadge label={data.privacyProtection.enabled ? "Privacy active" : "Privacy inactive"} tone={data.privacyProtection.enabled ? "success" : "warning"} />
             <ModuleBadge label={`${data.privacyProtection.supportedCategories.length} Kategorien`} />
+            <ModuleBadge label={`${data.privacyProtection.customRuleCount} Custom Rules`} />
             <ModuleBadge label={data.privacyProtection.coverageModel} />
           </div>
         </div>
         <p className="mt-4 text-xs leading-5 text-slate-500">{data.privacyProtection.notes}</p>
       </Surface>
+      <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+        <Surface className="p-6">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-slate-950">Manuell gepflegte Datenschutzregeln</p>
+              <p className="mt-1 text-sm text-slate-500">Erweitere die Pseudonymisierung um eigene Schlüsselwörter oder Regex-Muster für projekt- und landesspezifische Identifier.</p>
+            </div>
+            <ModuleBadge label={`${data.privacyRules.length} aktiv`} tone={data.privacyRules.length > 0 ? "success" : "neutral"} />
+          </div>
+          <div className="mt-5 space-y-3">
+            {data.privacyRules.length === 0 ? (
+              <div className="rounded-[24px] border border-dashed border-slate-200 bg-slate-50 px-5 py-6 text-sm leading-6 text-slate-500">
+                Noch keine projektspezifischen Datenschutzregeln hinterlegt. Standardregeln für E-Mail, IBAN, Karten, Steuer- und Dokumentnummern bleiben weiterhin aktiv.
+              </div>
+            ) : (
+              data.privacyRules.map(rule => (
+                <div key={rule.id} className="rounded-[24px] border border-slate-200/80 bg-white px-5 py-5 shadow-sm">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <div className="flex flex-wrap gap-2">
+                        <p className="text-sm font-semibold text-slate-950">{rule.name}</p>
+                        <ModuleBadge label={rule.kind} />
+                        <ModuleBadge label={rule.category} tone="warning" />
+                        {rule.validator !== "none" ? <ModuleBadge label={`Validator: ${rule.validator}`} tone="success" /> : null}
+                      </div>
+                      <p className="mt-3 text-xs leading-5 text-slate-500">
+                        {rule.kind === "contextual"
+                          ? `Schlüsselwörter: ${rule.keywords.join(", ")}`
+                          : `Regex: /${rule.pattern}/${rule.flags}`}
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      className="rounded-2xl border-slate-200"
+                      disabled={removePrivacyRuleMutation.isPending}
+                      onClick={() => removePrivacyRuleMutation.mutate({ id: rule.id })}
+                    >
+                      Entfernen
+                    </Button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </Surface>
+        <Surface className="p-6">
+          <p className="text-sm font-semibold text-slate-950">Eigene Regel hinzufügen</p>
+          <p className="mt-2 text-sm leading-6 text-slate-500">
+            Nutze Schlüsselwortregeln für kontextbezogene Formate wie "Mandanten-ID" oder Regex-Regeln für strikt strukturierte Nummern. Alle Regeln greifen automatisch vor LLM-, Audit-, Notification- und Guardrail-Pfaden.
+          </p>
+          <div className="mt-5 grid gap-4">
+            <input className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Regelname" value={ruleForm.name} onChange={e => setRuleForm({ ...ruleForm, name: e.target.value })} />
+            <div className="grid gap-4 md:grid-cols-2">
+              <select className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" value={ruleForm.kind} onChange={e => setRuleForm({ ...ruleForm, kind: e.target.value as "contextual" | "regex" })}>
+                <option value="contextual">Schlüsselwortregel</option>
+                <option value="regex">Regex-Regel</option>
+              </select>
+              <select className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" value={ruleForm.category} onChange={e => setRuleForm({ ...ruleForm, category: e.target.value as typeof ruleForm.category })}>
+                {data.privacyProtection.supportedCategories.map(item => (
+                  <option key={item.category} value={item.category}>{item.label}</option>
+                ))}
+              </select>
+            </div>
+            {ruleForm.kind === "contextual" ? (
+              <textarea className="min-h-[120px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm" placeholder="Schlüsselwörter kommagetrennt, z. B. Mandanten-ID, Client Number, Fiscal Reference" value={ruleForm.keywordsText} onChange={e => setRuleForm({ ...ruleForm, keywordsText: e.target.value })} />
+            ) : (
+              <>
+                <input className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Regex-Muster" value={ruleForm.pattern} onChange={e => setRuleForm({ ...ruleForm, pattern: e.target.value })} />
+                <div className="grid gap-4 md:grid-cols-2">
+                  <input className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Flags, z. B. giu" value={ruleForm.flags} onChange={e => setRuleForm({ ...ruleForm, flags: e.target.value })} />
+                  <select className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" value={ruleForm.validator} onChange={e => setRuleForm({ ...ruleForm, validator: e.target.value as typeof ruleForm.validator })}>
+                    <option value="none">Kein Zusatzvalidator</option>
+                    <option value="phone">Telefonvalidator</option>
+                    <option value="iban">IBAN-Validator</option>
+                    <option value="payment_card">Kartenvalidator</option>
+                  </select>
+                </div>
+              </>
+            )}
+            <p className="text-xs leading-5 text-slate-500">
+              Die Regeln ergänzen die Standarderkennung. Schlüsselwortregeln maskieren Werte nach einem erkannten Begriff, Regex-Regeln maskieren direkt strukturierte Treffer. Ungültige Regex-Muster werden serverseitig abgewiesen.
+            </p>
+            <Button
+              className="h-11 rounded-2xl bg-slate-950 text-white hover:bg-slate-900"
+              disabled={createPrivacyRuleMutation.isPending}
+              onClick={() => {
+                const trimmedName = ruleForm.name.trim();
+                if (trimmedName.length < 2) {
+                  toast.error("Bitte einen aussagekräftigen Regelnamen angeben.");
+                  return;
+                }
+
+                if (ruleForm.kind === "contextual") {
+                  const keywords = ruleForm.keywordsText.split(",").map(item => item.trim()).filter(Boolean);
+                  if (keywords.length === 0) {
+                    toast.error("Bitte mindestens ein Schlüsselwort hinterlegen.");
+                    return;
+                  }
+
+                  createPrivacyRuleMutation.mutate({
+                    name: trimmedName,
+                    kind: "contextual",
+                    category: ruleForm.category,
+                    keywords,
+                  }, {
+                    onSuccess: () => setRuleForm({ ...ruleForm, name: "", keywordsText: "" }),
+                  });
+                  return;
+                }
+
+                if (!ruleForm.pattern.trim()) {
+                  toast.error("Bitte ein Regex-Muster hinterlegen.");
+                  return;
+                }
+
+                createPrivacyRuleMutation.mutate({
+                  name: trimmedName,
+                  kind: "regex",
+                  category: ruleForm.category,
+                  pattern: ruleForm.pattern.trim(),
+                  flags: ruleForm.flags.trim() || "giu",
+                  validator: ruleForm.validator,
+                }, {
+                  onSuccess: () => setRuleForm({ ...ruleForm, name: "", pattern: "", flags: "giu", validator: "none" }),
+                });
+              }}
+            >
+              Datenschutzregel speichern
+            </Button>
+          </div>
+        </Surface>
+      </div>
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <Surface className="p-6">
           <div className="space-y-3">

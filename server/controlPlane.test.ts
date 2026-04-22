@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
+import { resetCustomPrivacyRules } from "./privacy";
 
 type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
 
@@ -30,6 +31,10 @@ function createAuthContext(): TrpcContext {
 }
 
 describe("control plane router", () => {
+  beforeEach(() => {
+    resetCustomPrivacyRules();
+  });
+
   it("returns a populated snapshot for the dashboard shell", async () => {
     const caller = appRouter.createCaller(createAuthContext());
     const snapshot = await caller.controlPlane.snapshot();
@@ -96,6 +101,35 @@ describe("control plane router", () => {
     const agents = await caller.agents.list();
     expect(agents.some(agent => agent.name === "Compliance Sentinel Prime")).toBe(true);
     expect(agents.some(agent => agent.name === "Compliance Sentinel Prime Kopie")).toBe(true);
+  });
+
+  it("creates custom privacy rules and exposes them through snapshot metadata", async () => {
+    const caller = appRouter.createCaller(createAuthContext());
+
+    const createdRule = await caller.privacyRules.create({
+      name: "Mandantenreferenz",
+      kind: "contextual",
+      category: "personal_identifier",
+      keywords: ["mandanten-id", "client reference"],
+    });
+
+    expect(createdRule.name).toBe("Mandantenreferenz");
+
+    const snapshot = await caller.controlPlane.snapshot();
+    expect(snapshot.privacyProtection.customRuleCount).toBe(1);
+    expect(snapshot.privacyRules[0]?.name).toBe("Mandantenreferenz");
+
+    const evaluation = await caller.evaluations.run({
+      agentId: 1,
+      name: "Manual rule regression",
+      expectedOutcome: "Mandanten-ID: C-7788-44 darf nicht roh an die KI gehen.",
+    });
+
+    expect(evaluation.summary).toContain("[PERSON_ID_1]");
+
+    await caller.privacyRules.remove({ id: createdRule.id });
+    const rulesAfterRemoval = await caller.privacyRules.list();
+    expect(rulesAfterRemoval).toHaveLength(0);
   });
 
   it("pseudonymizes sensitive identifiers before evaluation and guardrail storage", async () => {

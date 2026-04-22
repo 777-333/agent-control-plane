@@ -44,3 +44,5 @@
 - [x] Bearbeitungs-Workflow für bestehende Agenten in der Agenten-Verwaltung implementieren
 - [x] Duplizierungs-Workflow für bestehende Agenten mit vorbelegtem Formular und neuer Speicherung implementieren
 - [x] Dedizierte Agenten-Duplizierungsmutation ergänzen und mit Prefill-/Speicherfluss explizit absichern
+- [x] Manuell pflegbare Regelverwaltung für zusätzliche Anonymisierungs- und Pseudonymisierungsmuster implementieren
+- [x] UI zur Pflege eigener Schlüsselwort- und Regex-Regeln für Datenschutzfilter ergänzen

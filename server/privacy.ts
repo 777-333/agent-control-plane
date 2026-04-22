@@ -63,6 +63,33 @@ export type PrivacyRegexDefinition = {
   validator?: (value: string) => boolean;
 };
 
+export type PrivacyRuleKind = "contextual" | "regex";
+export type PrivacyRuleValidator = "none" | "phone" | "iban" | "payment_card";
+
+export type PrivacyRuleRecord = {
+  id: number;
+  name: string;
+  kind: PrivacyRuleKind;
+  category: SensitiveDataCategory;
+  keywords: string[];
+  pattern: string;
+  flags: string;
+  validator: PrivacyRuleValidator;
+  enabled: boolean;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type PrivacyRuleInput = {
+  name: string;
+  kind: PrivacyRuleKind;
+  category: SensitiveDataCategory;
+  keywords?: string[];
+  pattern?: string;
+  flags?: string;
+  validator?: PrivacyRuleValidator;
+};
+
 export type PrivacySanitizationOptions = {
   additionalContextualDefinitions?: PrivacyContextualDefinition[];
   additionalRegexDefinitions?: PrivacyRegexDefinition[];
@@ -94,6 +121,9 @@ const contextualDefinitions: PrivacyContextualDefinition[] = [
     keywords: ["kontonummer", "bankverbindung", "account number", "routing number", "sort code", "swift", "bic"],
   },
 ];
+
+let customPrivacyRules: PrivacyRuleRecord[] = [];
+let nextPrivacyRuleId = 1;
 
 function createPlaceholder(category: SensitiveDataCategory, index: number) {
   return `[${categoryLabels[category]}_${index}]`;
@@ -205,6 +235,134 @@ function applyContextualReplacement(
   });
 }
 
+function normalizeKeywords(keywords: string[]) {
+  return Array.from(new Set(keywords.map(item => item.trim()).filter(Boolean)));
+}
+
+function normalizeRegexFlags(flags?: string) {
+  const allowedFlags = new Set(["g", "i", "m", "s", "u", "y"]);
+  const merged = Array.from(new Set(["g", ...(flags ?? "iu").split("").filter(flag => allowedFlags.has(flag))]));
+  return merged.join("") || "giu";
+}
+
+function resolveValidator(validator: PrivacyRuleValidator) {
+  if (validator === "iban") {
+    return isValidIban;
+  }
+  if (validator === "phone") {
+    return isLikelyPhone;
+  }
+  if (validator === "payment_card") {
+    return isLikelyCard;
+  }
+  return undefined;
+}
+
+function getCustomContextualDefinitions() {
+  return customPrivacyRules
+    .filter(rule => rule.enabled && rule.kind === "contextual")
+    .map(rule => ({
+      category: rule.category,
+      keywords: rule.keywords,
+    })) satisfies PrivacyContextualDefinition[];
+}
+
+function getCustomRegexDefinitions() {
+  return customPrivacyRules
+    .filter(rule => rule.enabled && rule.kind === "regex")
+    .map(rule => ({
+      category: rule.category,
+      regex: new RegExp(rule.pattern, normalizeRegexFlags(rule.flags)),
+      validator: resolveValidator(rule.validator),
+    })) satisfies PrivacyRegexDefinition[];
+}
+
+export function listCustomPrivacyRules() {
+  return [...customPrivacyRules]
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .map(rule => ({
+      ...rule,
+      keywords: [...rule.keywords],
+    }));
+}
+
+export function createCustomPrivacyRule(input: PrivacyRuleInput) {
+  const name = input.name.trim();
+  if (name.length < 2) {
+    throw new Error("Der Regelname muss mindestens 2 Zeichen lang sein.");
+  }
+
+  const now = Date.now();
+
+  if (input.kind === "contextual") {
+    const keywords = normalizeKeywords(input.keywords ?? []);
+    if (keywords.length === 0) {
+      throw new Error("Für eine Schlüsselwortregel muss mindestens ein Begriff hinterlegt werden.");
+    }
+
+    const rule: PrivacyRuleRecord = {
+      id: nextPrivacyRuleId++,
+      name,
+      kind: "contextual",
+      category: input.category,
+      keywords,
+      pattern: "",
+      flags: "giu",
+      validator: "none",
+      enabled: true,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    customPrivacyRules.unshift(rule);
+    return { ...rule, keywords: [...rule.keywords] };
+  }
+
+  const pattern = input.pattern?.trim() ?? "";
+  if (pattern.length < 3) {
+    throw new Error("Für eine Regex-Regel muss ein gültiges Muster hinterlegt werden.");
+  }
+
+  const flags = normalizeRegexFlags(input.flags);
+  try {
+    new RegExp(pattern, flags);
+  } catch (error) {
+    throw new Error(`Ungültiges Regex-Muster: ${error instanceof Error ? error.message : "Unbekannter Fehler"}`);
+  }
+
+  const rule: PrivacyRuleRecord = {
+    id: nextPrivacyRuleId++,
+    name,
+    kind: "regex",
+    category: input.category,
+    keywords: [],
+    pattern,
+    flags,
+    validator: input.validator ?? "none",
+    enabled: true,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  customPrivacyRules.unshift(rule);
+  return { ...rule, keywords: [] };
+}
+
+export function deleteCustomPrivacyRule(ruleId: number) {
+  const existingRule = customPrivacyRules.find(rule => rule.id === ruleId);
+  if (!existingRule) {
+    throw new Error(`Datenschutzregel ${ruleId} wurde nicht gefunden.`);
+  }
+
+  customPrivacyRules = customPrivacyRules.filter(rule => rule.id !== ruleId);
+  return { ...existingRule, keywords: [...existingRule.keywords] };
+}
+
+export function resetCustomPrivacyRules() {
+  customPrivacyRules = [];
+  nextPrivacyRuleId = 1;
+}
+
 export function sanitizeTextForPrivacy(
   input: string,
   options: PrivacySanitizationOptions = {},
@@ -225,9 +383,13 @@ export function sanitizeTextForPrivacy(
 
   const mergedContextualDefinitions = [
     ...contextualDefinitions,
+    ...getCustomContextualDefinitions(),
     ...(options.additionalContextualDefinitions ?? []),
   ];
-  const additionalRegexDefinitions = options.additionalRegexDefinitions ?? [];
+  const additionalRegexDefinitions = [
+    ...getCustomRegexDefinitions(),
+    ...(options.additionalRegexDefinitions ?? []),
+  ];
 
   let sanitizedText = input;
   sanitizedText = applyRegexReplacement(sanitizedText, /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "email", detections, counters);
@@ -279,13 +441,16 @@ export function summarizePrivacySanitization(result: PrivacySanitizationResult) 
 }
 
 export function getPrivacyProtectionSummary() {
+  const customRules = listCustomPrivacyRules();
   return {
     enabled: true,
     mode: "pseudonymization_before_ai" as const,
     strictness: "high" as const,
     coverageModel: "global_heuristic_patterns" as const,
     configurable: true,
+    customRuleCount: customRules.length,
     notes: "Erkennt und pseudonymisiert strukturierte Identifikatoren vor KI-nahen Datenflüssen. Vollständige weltweite Formatabdeckung ist heuristisch und erweiterbar, nicht abschließend.",
     supportedCategories: privacyProtectionCatalog,
+    customRules,
   };
 }

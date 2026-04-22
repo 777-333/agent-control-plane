@@ -1,5 +1,17 @@
-import { describe, expect, it } from "vitest";
-import { combinePrivacySanitizationResults, sanitizeTextForPrivacy, summarizePrivacySanitization } from "./privacy";
+import { beforeEach, describe, expect, it } from "vitest";
+import {
+  combinePrivacySanitizationResults,
+  createCustomPrivacyRule,
+  deleteCustomPrivacyRule,
+  listCustomPrivacyRules,
+  resetCustomPrivacyRules,
+  sanitizeTextForPrivacy,
+  summarizePrivacySanitization,
+} from "./privacy";
+
+beforeEach(() => {
+  resetCustomPrivacyRules();
+});
 
 describe("privacy sanitization", () => {
   it("pseudonymizes globally recognizable identifiers such as email, phone and IBAN", () => {
@@ -24,7 +36,7 @@ describe("privacy sanitization", () => {
     expect(result.sanitizedText).toContain("Krankenversicherung: [HEALTH_INSURANCE_1]");
   });
 
-  it("supports custom extension rules for additional international identifiers", () => {
+  it("supports runtime extension rules for additional international identifiers", () => {
     const result = sanitizeTextForPrivacy("Fiscal code IT-ABCDEF12G34H567I", {
       additionalContextualDefinitions: [
         {
@@ -35,6 +47,40 @@ describe("privacy sanitization", () => {
     });
 
     expect(result.sanitizedText).toContain("Fiscal code [TAX_ID_1]");
+  });
+
+  it("applies manually managed custom privacy rules globally", () => {
+    createCustomPrivacyRule({
+      name: "Mandantenreferenz",
+      kind: "contextual",
+      category: "personal_identifier",
+      keywords: ["mandanten-id", "client reference"],
+    });
+
+    const result = sanitizeTextForPrivacy("Mandanten-ID: C-7788-44 muss vor der KI-Verarbeitung entfernt werden.");
+
+    expect(result.sanitizedText).toContain("Mandanten-ID: [PERSON_ID_1]");
+    expect(result.categories).toContain("personal_identifier");
+  });
+
+  it("creates, lists and removes manual privacy rules", () => {
+    const rule = createCustomPrivacyRule({
+      name: "Interne Ledger-ID",
+      kind: "regex",
+      category: "tax_identifier",
+      pattern: "LEDGER-[0-9]{4}",
+      flags: "giu",
+      validator: "none",
+    });
+
+    expect(listCustomPrivacyRules()).toHaveLength(1);
+    expect(listCustomPrivacyRules()[0]?.name).toBe("Interne Ledger-ID");
+
+    const result = sanitizeTextForPrivacy("Bitte prüfe LEDGER-4821 vor dem Export.");
+    expect(result.sanitizedText).toContain("[TAX_ID_1]");
+
+    deleteCustomPrivacyRule(rule.id);
+    expect(listCustomPrivacyRules()).toHaveLength(0);
   });
 
   it("combines multiple sanitization results into one auditable summary", () => {
