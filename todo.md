@@ -56,3 +56,9 @@
 - [x] Modulweise Gap-Matrix ergänzen, die pro Fachfläche wichtigste Tiefenfunktion, identifizierte Lücke, umgesetzte Maßnahme und Nachweis festhält
 - [x] Vite/JSX-Fehler in `client/src/components/DashboardLayout.tsx` beheben und den Dev-Server ohne Frontend-Parse-Errors verifizieren
 - [x] Gap-Matrix in `module_activation_notes.md` sprachlich auf den strikt belegten Nachweisstand schärfen, insbesondere für `Approval Workflow` und `Audit Log`
+- [x] Persistente Audit- und Approval-Filter mit speicherbaren Ansichten, Filterzustand und operativen Workflow-Aktionen implementieren
+- [x] Observability-KPI-Drilldowns mit historischen Verläufen, Detailansichten und Exportfunktion ausbauen
+- [x] Rollenbasierte Freigabe- und Eskalationsbenachrichtigungen für produktive Governance-Prozesse integrieren
+- [x] Frontend-Parse- und Browserstatus nach den neuen Audit-/Approval-Filteränderungen erneut verifizieren und verbleibende JSX-/Extraktionsprobleme beheben
+- [x] Observability-Historien auf belastbare serverseitige Verlaufsdaten umstellen und den Export darauf aufbauen
+- [x] Rollenbasierte Benachrichtigungen als echte fachliche Zustellung im Produkt sichtbar machen statt nur Owner-Notifikationen mit Rollenhinweis zu versenden

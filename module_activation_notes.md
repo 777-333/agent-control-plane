@@ -39,3 +39,14 @@ Ein weiterer Nachprüfungsversuch nach Serverneustart änderte den Browserbefund
 
 
 Nach Ergänzung des route-spezifischen Oberflächenbanners liefert `Audit Log` jetzt einen klaren browserseitigen Fachnachweis mit Route-Marker, Beschreibung, Ereignisliste, Zeitangaben und Filterkontext. `Approval Workflow` bleibt dagegen der einzige Bereich, der im Browserkanal trotz Dev-Login, Hook-Fix, route-spezifischem Ladezustand und aktuellem Route-Banner weiterhin nur den globalen Shell-Kontext ausgibt. Damit ist die offene Restlücke auf genau eine Route eingegrenzt.
+
+## Nachprüfung der neuen Filter- und Workflow-Oberflächen
+
+- **Approval Workflow:** Die Browserextraktion zeigt den neuen Filterkontext `Nur bearbeitbare Freigaben` direkt im Route-Output sowie weiterhin die fachlichen Approval-Inhalte mit Stufen, Eskalationsstatus und Ketteneditor.
+- **Audit Log:** Die Browserextraktion bestätigt aktuell mindestens den route-spezifischen Shell-Nachweis `Aktuelle Route: Audit Log · Traceability`; die tieferen Filterelemente bleiben im Markdown-Auszug verkürzt.
+- **Frontend-Stabilität:** Der laufende Projektstatus zeigt einen aktiven Dev-Server sowie fehlerfreie LSP- und TypeScript-Prüfungen. Die früheren Parse-Meldungen sind damit derzeit nicht als reproduzierbarer aktiver Laufzeitfehler nachweisbar.
+
+## Nachprüfung von Zustellungsinbox und Observability-Historie
+
+- **Approval Workflow:** Die Route wird im Browser jetzt mindestens mit dem expliziten Marker `Aktuelle Route: Approval Workflow · Human-in-the-loop` bestätigt. Die neue sichtbare Zustellungsinbox ist damit route-seitig verankert, auch wenn der Markdown-Extrakt auf dieser Seite weiterhin nicht den gesamten Inhaltsblock ausgibt.
+- **Observability:** Der Browser extrahiert jetzt zusätzlich zum Modulkontext die KPI-Drilldown-Sektion mit Verlaufspunkten `-24h`, `-12h`, `-6h`, `-3h`, `-1h` und `Jetzt`. Damit ist der serverseitig gelieferte Verlaufsdatensatz browserseitig klar nachweisbar.

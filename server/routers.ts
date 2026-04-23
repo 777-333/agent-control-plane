@@ -9,6 +9,7 @@ import {
   duplicateAgent,
   updateAgent,
   createApprovalChainTemplate,
+  createApprovalNotification,
   createEvaluationRun,
   createGuardrailEvent,
   createPermission,
@@ -229,14 +230,31 @@ export const appRouter = router({
           note: z.string().max(500).optional(),
         }),
       )
-      .mutation(async ({ ctx, input }) =>
-        resolveApprovalStage({
+      .mutation(async ({ ctx, input }) => {
+        const resolved = await resolveApprovalStage({
           approvalId: input.approvalId,
           decision: input.decision,
           approver: ctx.user.name || ctx.user.email || "Current User",
           note: input.note,
-        }),
-      ),
+        });
+        const currentStage = resolved.stages.find(stage => stage.order === resolved.currentStageOrder);
+        await createApprovalNotification({
+          approvalId: resolved.id,
+          approvalTitle: resolved.title,
+          severity: resolved.riskLevel,
+          recipientRole: currentStage?.requiredRole ?? "completed",
+          ownerLabel: currentStage?.ownerLabel ?? resolved.approver ?? "workflow-complete",
+          escalationTarget: currentStage?.escalationTarget,
+          actionType: input.decision === "approved" ? "resolution" : "handover",
+        });
+        await notifyOwner({
+          title: `Approval ${input.decision === "approved" ? "Update" : "Reject"}: ${resolved.title}`,
+          content: input.decision === "approved"
+            ? `Die Freigabe wurde von ${ctx.user.name || ctx.user.email || "Current User"} bearbeitet. Nächste verantwortliche Rolle: ${currentStage?.requiredRole ?? "keine weitere Stufe"}. Aktueller Owner: ${currentStage?.ownerLabel ?? resolved.approver ?? "abgeschlossen"}.`
+            : `Die Freigabe wurde von ${ctx.user.name || ctx.user.email || "Current User"} abgelehnt. Betroffene Rolle: ${currentStage?.requiredRole ?? "abgeschlossen"}. Hinweis: ${input.note ?? "kein Zusatzkommentar"}`,
+        });
+        return resolved;
+      }),
     escalate: protectedProcedure
       .input(
         z.object({
@@ -250,6 +268,16 @@ export const appRouter = router({
           reason: input.reason,
           triggeredBy: ctx.user.name || ctx.user.email || "Current User",
         });
+        const currentStage = escalated.stages.find(stage => stage.order === escalated.currentStageOrder);
+        await createApprovalNotification({
+          approvalId: escalated.id,
+          approvalTitle: escalated.title,
+          severity: escalated.riskLevel,
+          recipientRole: currentStage?.requiredRole ?? "admin",
+          ownerLabel: currentStage?.ownerLabel ?? "unbekannt",
+          escalationTarget: currentStage?.escalationTarget,
+          actionType: "escalation",
+        });
         await notifyOwner({
           title: `Approval Escalation: ${escalated.title}`,
           content: `Die aktuelle Freigabestufe wurde eskaliert. Neuer Owner: ${escalated.stages.find(stage => stage.order === escalated.currentStageOrder)?.ownerLabel ?? "unbekannt"}. Grund: ${input.reason}`,
@@ -261,12 +289,25 @@ export const appRouter = router({
         z.object({
           approvalTitle: z.string().min(2),
           severity: z.string().min(2),
+          recipientRole: z.string().min(2),
+          ownerLabel: z.string().min(2),
+          escalationTarget: z.string().min(2).optional(),
+          actionType: z.enum(["review", "escalation", "handover"]).default("review"),
         }),
       )
       .mutation(async ({ input }) => {
+        await createApprovalNotification({
+          approvalId: 0,
+          approvalTitle: input.approvalTitle,
+          severity: input.severity,
+          recipientRole: input.recipientRole,
+          ownerLabel: input.ownerLabel,
+          escalationTarget: input.escalationTarget,
+          actionType: input.actionType,
+        });
         const delivered = await notifyOwner({
           title: `Approval Workflow: ${input.approvalTitle}`,
-          content: `Eine Freigabe mit Priorität ${input.severity} wurde zur Prüfung oder Eskalation markiert.`,
+          content: `Rolle ${input.recipientRole} wurde für ${input.actionType === "escalation" ? "eine Eskalation" : input.actionType === "handover" ? "eine Übergabe" : "eine Freigabeprüfung"} adressiert. Aktueller Owner: ${input.ownerLabel}. Priorität: ${input.severity}.${input.escalationTarget ? ` Eskalationsziel: ${input.escalationTarget}.` : ""}`,
         });
         return { delivered };
       }),

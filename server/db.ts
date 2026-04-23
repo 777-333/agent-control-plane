@@ -218,6 +218,19 @@ type ApprovalRecord = {
   stages: ApprovalStageRecord[];
 };
 
+type ApprovalNotificationRecord = {
+  id: number;
+  approvalId: number;
+  approvalTitle: string;
+  severity: RiskLevel | string;
+  recipientRole: string;
+  ownerLabel: string;
+  escalationTarget?: string;
+  actionType: "review" | "escalation" | "handover" | "resolution";
+  channel: "inbox" | "owner_notification";
+  createdAt: number;
+};
+
 type AuditEventRecord = {
   id: number;
   agentId: number;
@@ -652,11 +665,52 @@ const guardrailsData: GuardrailRecord[] = [
   { id: 3, agentId: 3, agentName: "Research Navigator", triggerType: "tool_anomaly", status: "resolved", thresholdLabel: "Browser step divergence", detail: "Abweichung vom erwarteten Browser-Pfad wurde erkannt und durch erneute Ausführung behoben.", createdAt: now - 1000 * 60 * 132 },
 ];
 
+const approvalNotificationsData: ApprovalNotificationRecord[] = [
+  {
+    id: 1,
+    approvalId: 1,
+    approvalTitle: "Kulanzgutschrift für Enterprise-Kunde · CS Lead Approval",
+    severity: "high",
+    recipientRole: "approver",
+    ownerLabel: "Customer Success Lead",
+    escalationTarget: "VP Customer Success",
+    actionType: "review",
+    channel: "inbox",
+    createdAt: now - 1000 * 60 * 25,
+  },
+  {
+    id: 2,
+    approvalId: 2,
+    approvalTitle: "ERP-Zahlung über 18.400 USD · Finance Threshold Review",
+    severity: "critical",
+    recipientRole: "admin",
+    ownerLabel: "Executive Risk Committee",
+    escalationTarget: "Executive Risk Committee",
+    actionType: "escalation",
+    channel: "inbox",
+    createdAt: now - 1000 * 60 * 10,
+  },
+];
+
 const metricsData: MetricRecord[] = [
   { id: 1, agentId: 1, agentName: "Finance Sentinel", latencyMs: 1620, errorRate: 0.7, apiCostUsd: 4820, tokenUsage: 1840000, windowLabel: "30d", capturedAt: now - 1000 * 60 * 3 },
   { id: 2, agentId: 2, agentName: "Support Orchestrator", latencyMs: 3940, errorRate: 3.8, apiCostUsd: 3150, tokenUsage: 1290000, windowLabel: "30d", capturedAt: now - 1000 * 60 * 4 },
   { id: 3, agentId: 3, agentName: "Research Navigator", latencyMs: 1280, errorRate: 0.4, apiCostUsd: 1240, tokenUsage: 610000, windowLabel: "30d", capturedAt: now - 1000 * 60 * 5 },
 ];
+
+const metricHistoryData = new Map(
+  metricsData.map((metric, index) => [
+    metric.id,
+    [0, 1, 2, 3, 4, 5].map(offset => ({
+      window: `T-${5 - offset}`,
+      capturedAt: now - (5 - offset) * 1000 * 60 * 15 - index * 1000 * 60,
+      latencyMs: Math.max(900, metric.latencyMs + (offset - 3) * (22 + index * 8)),
+      errorRate: Number(Math.max(0.2, metric.errorRate + (offset - 3) * 0.06).toFixed(2)),
+      apiCostUsd: Number((metric.apiCostUsd - (5 - offset) * (18 + index * 7)).toFixed(2)),
+      tokenUsage: Math.max(1000, metric.tokenUsage - (5 - offset) * (22000 + index * 8000)),
+    })),
+  ]),
+);
 
 const teamsData: TeamRecord[] = [
   { id: 1, name: "Finance Operations", members: 8, owner: "Sophie Keller", coverage: "ERP, Approvals, Audit" },
@@ -999,6 +1053,34 @@ function refreshLiveMetrics() {
     metric.apiCostUsd = Number((metric.apiCostUsd + 6 + index * 3).toFixed(2));
     metric.tokenUsage = metric.tokenUsage + 1800 + index * 700;
     metric.capturedAt = Date.now();
+
+    const history = metricHistoryData.get(metric.id) ?? [];
+    const latest = history[history.length - 1];
+    if (!latest || metric.capturedAt - latest.capturedAt >= 1000 * 10) {
+      history.push({
+        window: `T+${history.length + 1}`,
+        capturedAt: metric.capturedAt,
+        latencyMs: metric.latencyMs,
+        errorRate: metric.errorRate,
+        apiCostUsd: metric.apiCostUsd,
+        tokenUsage: metric.tokenUsage,
+      });
+    } else {
+      history[history.length - 1] = {
+        ...latest,
+        capturedAt: metric.capturedAt,
+        latencyMs: metric.latencyMs,
+        errorRate: metric.errorRate,
+        apiCostUsd: metric.apiCostUsd,
+        tokenUsage: metric.tokenUsage,
+      };
+    }
+
+    const trimmed = history.slice(-6).map((point, pointIndex, array) => ({
+      ...point,
+      window: pointIndex === array.length - 1 ? "Jetzt" : `T-${array.length - pointIndex - 1}`,
+    }));
+    metricHistoryData.set(metric.id, trimmed);
   });
 }
 
@@ -1425,6 +1507,36 @@ export async function listApprovals() {
   return [...approvalsData].sort((a, b) => b.requestedAt - a.requestedAt);
 }
 
+export async function listApprovalNotifications() {
+  return [...approvalNotificationsData].sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export async function createApprovalNotification(input: {
+  approvalId: number;
+  approvalTitle: string;
+  severity: RiskLevel | string;
+  recipientRole: string;
+  ownerLabel: string;
+  escalationTarget?: string;
+  actionType: "review" | "escalation" | "handover" | "resolution";
+  channel?: "inbox" | "owner_notification";
+}) {
+  const notification: ApprovalNotificationRecord = {
+    id: approvalNotificationsData.length + 1,
+    approvalId: input.approvalId,
+    approvalTitle: input.approvalTitle,
+    severity: input.severity,
+    recipientRole: input.recipientRole,
+    ownerLabel: input.ownerLabel,
+    escalationTarget: input.escalationTarget,
+    actionType: input.actionType,
+    channel: input.channel ?? "inbox",
+    createdAt: Date.now(),
+  };
+  approvalNotificationsData.unshift(notification);
+  return notification;
+}
+
 export async function applyApprovalChainToApproval(input: { approvalId: number; chainId: number; triggeredBy: string }) {
   const approval = approvalsData.find(item => item.id === input.approvalId);
   if (!approval) {
@@ -1639,7 +1751,20 @@ export async function listGuardrailEvents() {
 
 export async function listMetricSnapshots() {
   refreshLiveMetrics();
-  return [...metricsData].sort((a, b) => a.agentName.localeCompare(b.agentName));
+
+  return [...metricsData]
+    .sort((a, b) => a.agentName.localeCompare(b.agentName))
+    .map(metric => ({
+      ...metric,
+      history: (metricHistoryData.get(metric.id) ?? []).map(point => ({
+        window: point.window,
+        capturedAt: point.capturedAt,
+        latencyMs: point.latencyMs,
+        errorRate: point.errorRate,
+        apiCostUsd: point.apiCostUsd,
+        tokenUsage: point.tokenUsage,
+      })),
+    }));
 }
 
 export async function createTeam(input: { name: string; owner: string; coverage: string }) {
@@ -1773,6 +1898,7 @@ export async function getControlPlaneSnapshot() {
     policies: await listPolicies(),
     approvalChains: await listApprovalChains(),
     approvals: await listApprovals(),
+    approvalNotifications: await listApprovalNotifications(),
     auditEvents: await listAuditEvents(),
     connectors: await listConnectors(),
     evaluations: await listEvaluations(),

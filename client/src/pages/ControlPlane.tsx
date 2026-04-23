@@ -5,7 +5,7 @@ import { applyCalendarPresetToStages, countStagesMatchingCalendarPreset, createC
 import { createAgentFormFromExistingAgent, createDefaultAgentForm, getAgentFormValidationMessage, normalizeAgentFormInput, type AgentFormInput } from "@/lib/agent-form";
 import { Loader2, Shield, Activity, BellRing, BrainCircuit, FileSearch, Blocks, UserCog, Fingerprint, ChartNoAxesCombined, Waypoints, Sparkles, GripVertical } from "lucide-react";
 import { toast } from "sonner";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -29,6 +29,26 @@ function formatNumber(value: number) {
   return new Intl.NumberFormat("de-DE").format(value);
 }
 
+function downloadCsv(filename: string, rows: Array<Record<string, string | number>>) {
+  if (typeof window === "undefined" || rows.length === 0) {
+    return;
+  }
+
+  const columns = Object.keys(rows[0]);
+  const csv = [
+    columns.join(","),
+    ...rows.map(row => columns.map(column => `"${String(row[column]).replaceAll('"', '""')}"`).join(",")),
+  ].join("\n");
+
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = window.URL.createObjectURL(blob);
+  const link = window.document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  window.URL.revokeObjectURL(url);
+}
+
 function timeAgo(timestamp: number) {
   const minutes = Math.max(1, Math.round((Date.now() - timestamp) / 60000));
   if (minutes < 60) return `vor ${minutes} Min.`;
@@ -43,6 +63,31 @@ function useSnapshot() {
     refetchInterval: 8_000,
     refetchOnWindowFocus: false,
   });
+}
+
+function usePersistentState<T>(storageKey: string, initialValue: T) {
+  const [state, setState] = useState<T>(() => {
+    if (typeof window === "undefined") {
+      return initialValue;
+    }
+
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      return raw ? (JSON.parse(raw) as T) : initialValue;
+    } catch {
+      return initialValue;
+    }
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.setItem(storageKey, JSON.stringify(state));
+  }, [storageKey, state]);
+
+  return [state, setState] as const;
 }
 
 function LoadingState({
@@ -751,6 +796,18 @@ export function ApprovalsPage() {
     };
   });
   const [simulationMinute, setSimulationMinute] = useState(0);
+  const [approvalFilters, setApprovalFilters] = usePersistentState("control-plane-approval-filters", {
+    status: "all",
+    riskLevel: "all",
+    escalationStatus: "all",
+    actionableOnly: false,
+    search: "",
+  });
+  const [savedApprovalViews, setSavedApprovalViews] = usePersistentState<Array<{ id: string; name: string; filters: typeof approvalFilters }>>(
+    "control-plane-approval-views",
+    [],
+  );
+  const [selectedNotificationRole, setSelectedNotificationRole] = usePersistentState<string>("control-plane-approval-notification-role", "all");
 
   const resolveMutation = trpc.approvals.resolve.useMutation({
     onSuccess: async () => {
@@ -900,6 +957,38 @@ export function ApprovalsPage() {
     );
   };
 
+  const filteredApprovalNotifications = data.approvalNotifications.filter(notification => selectedNotificationRole === "all" || notification.recipientRole === selectedNotificationRole);
+
+  const filteredApprovals = data.approvals.filter(item => {
+    const currentStage = item.stages.find(stage => stage.order === item.currentStageOrder);
+    const isActionable = item.status === "pending" && currentStage && (currentStage.status === "pending" || currentStage.status === "escalated");
+    const searchValue = approvalFilters.search.trim().toLowerCase();
+    const matchesSearch =
+      searchValue.length === 0 ||
+      [item.title, item.summary, item.agentName, item.chainName, item.requestedBy].join(" ").toLowerCase().includes(searchValue);
+
+    return (
+      (approvalFilters.status === "all" || item.status === approvalFilters.status) &&
+      (approvalFilters.riskLevel === "all" || item.riskLevel === approvalFilters.riskLevel) &&
+      (approvalFilters.escalationStatus === "all" || item.escalationStatus === approvalFilters.escalationStatus) &&
+      (!approvalFilters.actionableOnly || Boolean(isActionable)) &&
+      matchesSearch
+    );
+  });
+
+  const persistApprovalView = () => {
+    const trimmedName = window.prompt("Name der Freigabe-Ansicht", `Approval View ${savedApprovalViews.length + 1}`)?.trim();
+    if (!trimmedName) {
+      return;
+    }
+
+    setSavedApprovalViews(current => [
+      { id: `${Date.now()}`, name: trimmedName, filters: approvalFilters },
+      ...current.filter(view => view.name !== trimmedName),
+    ].slice(0, 6));
+    toast.success(`Freigabe-Ansicht „${trimmedName}“ gespeichert.`);
+  };
+
   const saveChain = () => {
     const payload = {
       name: chainForm.name,
@@ -924,11 +1013,82 @@ export function ApprovalsPage() {
 
   return (
     <div className="space-y-6">
-      <SectionHeader eyebrow="Human-in-the-loop" title="Approval Workflow" description="Kritische Agentenaktionen werden mit Benachrichtigung, mehrstufigen Genehmigungsketten, Eskalationsregeln und persistenten Freigabemustern zur menschlichen Freigabe geführt." />
+      <SectionHeader eyebrow="Human-in-the-loop" title="Approval Workflow" description="Kritische Agentenaktionen werden mit Benachrichtigung, mehrstufigen Genehmigungsketten, Eskalationsregeln und persistenten Freigabemustern zur menschlichen Freigabe geführt." actions={<ModuleBadge label={`${filteredApprovals.length} offene Sichten`} tone="warning" />} />
+      <Surface className="p-6">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-slate-950">Rollenbasierte Zustellungsinbox</p>
+            <p className="mt-2 text-sm leading-6 text-slate-600">Jede ausgelöste Review-, Übergabe- oder Eskalationsnachricht wird mit Zielrolle, aktuellem Owner und Eskalationsziel in der Oberfläche dokumentiert.</p>
+          </div>
+          <ModuleBadge label={`${filteredApprovalNotifications.length} Zustellungen`} tone="neutral" />
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {["all", ...Array.from(new Set(data.approvalNotifications.map(notification => notification.recipientRole)))].map(role => (
+            <Button key={role} variant="outline" className={`rounded-xl border-slate-300 ${selectedNotificationRole === role ? "bg-slate-950 text-white hover:bg-slate-900" : ""}`} onClick={() => setSelectedNotificationRole(role)}>
+              {role === "all" ? "Alle Rollen" : `Rolle ${role}`}
+            </Button>
+          ))}
+        </div>
+        <div className="mt-5 grid gap-4 md:grid-cols-3">
+          {filteredApprovalNotifications.slice(0, 3).map(notification => (
+            <div key={`${notification.id}-${notification.createdAt}`} className="rounded-[24px] border border-slate-200/80 bg-white px-5 py-5 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-950">{notification.approvalTitle}</p>
+                  <p className="mt-2 text-sm text-slate-600">Rolle {notification.recipientRole} · Owner {notification.ownerLabel}</p>
+                </div>
+                <ModuleBadge label={notification.actionType} tone={notification.actionType === "escalation" ? "danger" : notification.actionType === "resolution" ? "success" : "warning"} />
+              </div>
+              <div className="mt-4 grid gap-2 text-sm text-slate-600">
+                <div className="flex justify-between"><span>Priorität</span><span className="font-medium text-slate-950">{notification.severity}</span></div>
+                <div className="flex justify-between"><span>Kanal</span><span className="font-medium text-slate-950">{notification.channel}</span></div>
+                <div className="flex justify-between"><span>Eskalationsziel</span><span className="font-medium text-slate-950">{notification.escalationTarget ?? "–"}</span></div>
+              </div>
+              <p className="mt-4 text-xs uppercase tracking-[0.18em] text-slate-400">{timeAgo(notification.createdAt)}</p>
+            </div>
+          ))}
+        </div>
+      </Surface>
       <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
         <Surface className="p-6">
-          <div className="grid gap-4">
-            {data.approvals.map(item => {
+          <div className="space-y-5">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+              <select className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" value={approvalFilters.status} onChange={e => setApprovalFilters(current => ({ ...current, status: e.target.value }))}>
+                <option value="all">Alle Status</option>
+                <option value="pending">pending</option>
+                <option value="approved">approved</option>
+                <option value="rejected">rejected</option>
+                <option value="expired">expired</option>
+              </select>
+              <select className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" value={approvalFilters.riskLevel} onChange={e => setApprovalFilters(current => ({ ...current, riskLevel: e.target.value }))}>
+                <option value="all">Alle Risikolevel</option>
+                <option value="low">low</option>
+                <option value="medium">medium</option>
+                <option value="high">high</option>
+                <option value="critical">critical</option>
+              </select>
+              <select className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" value={approvalFilters.escalationStatus} onChange={e => setApprovalFilters(current => ({ ...current, escalationStatus: e.target.value }))}>
+                <option value="all">Alle Eskalationen</option>
+                <option value="none">none</option>
+                <option value="pending">pending</option>
+                <option value="escalated">escalated</option>
+                <option value="resolved">resolved</option>
+              </select>
+              <input className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Titel, Chain oder Requester durchsuchen" value={approvalFilters.search} onChange={e => setApprovalFilters(current => ({ ...current, search: e.target.value }))} />
+              <label className="flex h-11 items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-700">
+                <input type="checkbox" checked={approvalFilters.actionableOnly} onChange={e => setApprovalFilters(current => ({ ...current, actionableOnly: e.target.checked }))} />
+                Nur bearbeitbare Freigaben
+              </label>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" className="rounded-xl border-slate-300" onClick={persistApprovalView}>Ansicht speichern</Button>
+              <Button variant="outline" className="rounded-xl border-slate-300" onClick={() => setApprovalFilters({ status: "all", riskLevel: "all", escalationStatus: "all", actionableOnly: false, search: "" })}>Filter zurücksetzen</Button>
+              {savedApprovalViews.map(view => (
+                <Button key={view.id} variant="outline" className="rounded-xl border-slate-300" onClick={() => setApprovalFilters(view.filters)}>{view.name}</Button>
+              ))}
+            </div>
+            <div className="grid gap-4">
+            {filteredApprovals.map(item => {
               const currentStage = item.stages.find(stage => stage.order === item.currentStageOrder);
               const isActionable = item.status === "pending" && currentStage && (currentStage.status === "pending" || currentStage.status === "escalated");
 
@@ -987,7 +1147,7 @@ export function ApprovalsPage() {
                             <Button className="rounded-xl bg-slate-950 text-white hover:bg-slate-900" disabled={resolveMutation.isPending} onClick={() => resolveMutation.mutate({ approvalId: item.id, decision: "approved", note: `Stufe ${currentStage.name} bestätigt.` })}>Approve stage</Button>
                             <Button variant="outline" className="rounded-xl border-slate-300" disabled={resolveMutation.isPending} onClick={() => resolveMutation.mutate({ approvalId: item.id, decision: "rejected", note: `Stufe ${currentStage.name} abgelehnt.` })}>Reject workflow</Button>
                             <Button variant="outline" className="rounded-xl border-slate-300" disabled={escalateMutation.isPending} onClick={() => escalateMutation.mutate({ approvalId: item.id, reason: `Manuelle Eskalation für ${currentStage.name}.` })}>Escalate</Button>
-                            <Button variant="outline" className="rounded-xl border-slate-300" disabled={notifyMutation.isPending} onClick={() => notifyMutation.mutate({ approvalTitle: `${item.title} · ${currentStage.name}`, severity: item.riskLevel })}>Notify</Button>
+                            <Button variant="outline" className="rounded-xl border-slate-300" disabled={notifyMutation.isPending} onClick={() => notifyMutation.mutate({ approvalTitle: `${item.title} · ${currentStage.name}`, severity: item.riskLevel, recipientRole: currentStage.requiredRole, ownerLabel: currentStage.ownerLabel, escalationTarget: currentStage.escalationTarget, actionType: item.escalationStatus === "escalated" ? "escalation" : "review" })}>Notify</Button>
                           </div>
                         </div>
                       ) : (
@@ -1015,6 +1175,8 @@ export function ApprovalsPage() {
                 </div>
               );
             })}
+            {filteredApprovals.length === 0 ? <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-5 py-8 text-sm text-slate-500">Keine Freigaben entsprechen der aktuellen Filterkombination.</div> : null}
+            </div>
           </div>
         </Surface>
 
@@ -1424,11 +1586,45 @@ export function ApprovalsPage() {
 
 export function AuditPage() {
   const { data, isLoading, error } = useSnapshot();
-  const [filter, setFilter] = useState("all");
+  const [filters, setFilters] = usePersistentState("control-plane-audit-filters", {
+    severity: "all",
+    category: "all",
+    actorType: "all",
+    search: "",
+  });
+  const [savedViews, setSavedViews] = usePersistentState<Array<{ id: string; name: string; filters: typeof filters }>>(
+    "control-plane-audit-views",
+    [],
+  );
+
   if (isLoading) return <LoadingState title="Audit Log" description="Governance-Ereignisse, Zeitstempel und Filter werden geladen." />;
   if (error || !data) return <ErrorState />;
 
-  const filtered = data.auditEvents.filter(event => filter === "all" ? true : event.severity === filter);
+  const categories = Array.from(new Set(data.auditEvents.map(event => event.category)));
+  const filtered = data.auditEvents.filter(event => {
+    const matchesSeverity = filters.severity === "all" || event.severity === filters.severity;
+    const matchesCategory = filters.category === "all" || event.category === filters.category;
+    const matchesActorType = filters.actorType === "all" || event.actorType === filters.actorType;
+    const searchValue = filters.search.trim().toLowerCase();
+    const matchesSearch =
+      searchValue.length === 0 ||
+      [event.title, event.detail, event.agentName, event.actorRef, event.category].join(" ").toLowerCase().includes(searchValue);
+
+    return matchesSeverity && matchesCategory && matchesActorType && matchesSearch;
+  });
+
+  const persistCurrentView = () => {
+    const trimmedName = window.prompt("Name der Audit-Ansicht", `Audit View ${savedViews.length + 1}`)?.trim();
+    if (!trimmedName) {
+      return;
+    }
+
+    setSavedViews(current => [
+      { id: `${Date.now()}`, name: trimmedName, filters },
+      ...current.filter(view => view.name !== trimmedName),
+    ].slice(0, 6));
+    toast.success(`Audit-Ansicht „${trimmedName}“ gespeichert.`);
+  };
 
   return (
     <div className="space-y-6">
@@ -1436,37 +1632,78 @@ export function AuditPage() {
         eyebrow="Traceability"
         title="Audit Log"
         description="Vollständige, filterbare Protokollierung aller Agentenentscheidungen, Tool-Aufrufe und Governance-Ereignisse mit klarer zeitlicher Nachvollziehbarkeit."
-        actions={
-          <div className="flex gap-2 rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
-            {(["all", "info", "warning", "critical"] as const).map(option => (
-              <button key={option} className={`rounded-xl px-3 py-2 text-xs font-medium ${filter === option ? "bg-slate-950 text-white" : "text-slate-600"}`} onClick={() => setFilter(option)}>
-                {option}
-              </button>
-            ))}
-          </div>
-        }
+        actions={<ModuleBadge label={`${filtered.length} Treffer`} tone="success" />}
       />
       <Surface className="p-6">
-        <div className="space-y-3">
-          {filtered.map(event => (
-            <div key={event.id} className="rounded-2xl border border-slate-200/80 bg-white px-5 py-4 shadow-sm">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-semibold text-slate-950">{event.title}</p>
-                    <ModuleBadge label={event.severity} tone={event.severity === "critical" ? "danger" : event.severity === "warning" ? "warning" : "success"} />
-                  </div>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">{event.detail}</p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <ModuleBadge label={event.agentName} />
-                    <ModuleBadge label={event.category} />
-                    <ModuleBadge label={`${event.actorType}: ${event.actorRef}`} />
+        <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+          <div className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <select className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" value={filters.severity} onChange={e => setFilters(current => ({ ...current, severity: e.target.value }))}>
+                <option value="all">Alle Schweregrade</option>
+                <option value="info">info</option>
+                <option value="warning">warning</option>
+                <option value="critical">critical</option>
+              </select>
+              <select className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" value={filters.category} onChange={e => setFilters(current => ({ ...current, category: e.target.value }))}>
+                <option value="all">Alle Kategorien</option>
+                {categories.map(category => <option key={category} value={category}>{category}</option>)}
+              </select>
+              <select className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" value={filters.actorType} onChange={e => setFilters(current => ({ ...current, actorType: e.target.value }))}>
+                <option value="all">Alle Akteure</option>
+                <option value="agent">agent</option>
+                <option value="user">user</option>
+                <option value="system">system</option>
+              </select>
+              <input className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Titel, Akteur oder Detail durchsuchen" value={filters.search} onChange={e => setFilters(current => ({ ...current, search: e.target.value }))} />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" className="rounded-xl border-slate-300" onClick={persistCurrentView}>Ansicht speichern</Button>
+              <Button variant="outline" className="rounded-xl border-slate-300" onClick={() => setFilters({ severity: "all", category: "all", actorType: "all", search: "" })}>Filter zurücksetzen</Button>
+            </div>
+            <div className="space-y-3">
+              {filtered.map(event => (
+                <div key={event.id} className="rounded-2xl border border-slate-200/80 bg-white px-5 py-4 shadow-sm">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-semibold text-slate-950">{event.title}</p>
+                        <ModuleBadge label={event.severity} tone={event.severity === "critical" ? "danger" : event.severity === "warning" ? "warning" : "success"} />
+                      </div>
+                      <p className="mt-2 text-sm leading-6 text-slate-600">{event.detail}</p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <ModuleBadge label={event.agentName} />
+                        <ModuleBadge label={event.category} />
+                        <ModuleBadge label={`${event.actorType}: ${event.actorRef}`} />
+                      </div>
+                    </div>
+                    <div className="text-xs text-slate-500">{timeAgo(event.createdAt)}</div>
                   </div>
                 </div>
-                <div className="text-xs text-slate-500">{timeAgo(event.createdAt)}</div>
-              </div>
+              ))}
+              {filtered.length === 0 ? <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-5 py-8 text-sm text-slate-500">Keine Audit-Ereignisse passen auf die aktuelle Filteransicht.</div> : null}
             </div>
-          ))}
+          </div>
+          <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-5">
+            <p className="text-sm font-semibold text-slate-950">Gespeicherte Ansichten</p>
+            <p className="mt-2 text-sm leading-6 text-slate-600">Persistiere häufig genutzte Filterkombinationen für Incident Review, Approval Traceability oder Connector-Governance.</p>
+            <div className="mt-4 space-y-3">
+              {savedViews.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-4 text-sm text-slate-500">Noch keine Audit-Ansicht gespeichert.</div>
+              ) : (
+                savedViews.map(view => (
+                  <div key={view.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-950">{view.name}</p>
+                        <p className="mt-2 text-xs leading-5 text-slate-500">{view.filters.severity} · {view.filters.category} · {view.filters.actorType}</p>
+                      </div>
+                      <Button variant="outline" className="rounded-xl border-slate-300" onClick={() => setFilters(view.filters)}>Laden</Button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         </div>
       </Surface>
     </div>
@@ -1843,15 +2080,33 @@ export function GuardrailsPage() {
 
 export function ObservabilityPage() {
   const { data, isLoading, error } = useSnapshot();
-  if (isLoading) return <LoadingState />;
+  const [selectedAgentId, setSelectedAgentId] = usePersistentState<number | null>("control-plane-observability-agent", null);
+  const [selectedMetric, setSelectedMetric] = usePersistentState<"latency" | "errorRate" | "cost" | "tokens">("control-plane-observability-metric", "latency");
+  if (isLoading) return <LoadingState title="Observability & Cost Monitoring" description="Metriken, Verlaufssignale und Kosten-Drilldowns werden geladen." />;
   if (error || !data) return <ErrorState />;
 
+  const selectedAgent = data.metrics.find(item => item.agentId === selectedAgentId) ?? data.metrics[0];
   const latencyData = data.metrics.map(item => ({ name: item.agentName.split(" ")[0], latency: item.latencyMs, errorRate: item.errorRate }));
-  const costData = data.metrics.map(item => ({ name: item.agentName.split(" ")[0], cost: item.apiCostUsd, tokens: item.tokenUsage / 1000 }));
+  const costData = data.metrics.map(item => ({ name: item.agentName.split(" ")[0], cost: item.apiCostUsd, tokens: Math.round(item.tokenUsage / 1000) }));
+  const trendSeries = selectedAgent.history.map(point => ({
+    window: point.window,
+    latency: point.latencyMs,
+    errorRate: point.errorRate,
+    cost: point.apiCostUsd,
+    tokens: point.tokenUsage,
+  }));
+  const metricConfig = {
+    latency: { label: "Latenz", formatter: (value: number) => `${formatNumber(value)} ms`, tone: "warning" as const },
+    errorRate: { label: "Fehlerrate", formatter: (value: number) => `${value.toFixed(2)}%`, tone: "danger" as const },
+    cost: { label: "API-Kosten", formatter: (value: number) => formatCurrency(value), tone: "neutral" as const },
+    tokens: { label: "Tokens", formatter: (value: number) => formatNumber(value), tone: "success" as const },
+  };
+
+  const selectedMetricConfig = metricConfig[selectedMetric];
 
   return (
     <div className="space-y-6">
-      <SectionHeader eyebrow="Monitoring" title="Observability & Cost Monitoring" description="Echtzeit-Metriken zu Latenz, Fehlerrate, API-Kosten und Token-Verbrauch verdichten die operative Sicht auf Performance und Wirtschaftlichkeit." />
+      <SectionHeader eyebrow="Monitoring" title="Observability & Cost Monitoring" description="Echtzeit-Metriken zu Latenz, Fehlerrate, API-Kosten und Token-Verbrauch verdichten die operative Sicht auf Performance und Wirtschaftlichkeit." actions={<ModuleBadge label={`${data.metrics.length} Agenten im Monitoring`} tone="success" />} />
       <div className="grid gap-6 xl:grid-cols-2">
         <Surface className="p-6">
           <p className="text-sm font-semibold text-slate-950">Latenz und Fehlerrate</p>
@@ -1888,16 +2143,99 @@ export function ObservabilityPage() {
           </div>
         </Surface>
       </div>
+      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <Surface className="p-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-slate-950">KPI-Drilldown</p>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Wähle einen Agenten und fokussiere einen KPI, um Verlauf, aktuelle Ausprägung und Exportdaten in einer operativen Sicht zusammenzuführen.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <select className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" value={selectedAgent.agentId} onChange={e => setSelectedAgentId(Number(e.target.value))}>
+                {data.metrics.map(item => <option key={item.id} value={item.agentId}>{item.agentName}</option>)}
+              </select>
+              <Button variant="outline" className="rounded-xl border-slate-300" onClick={() => downloadCsv(`observability-${selectedAgent.agentName.toLowerCase().replaceAll(" ", "-")}.csv`, trendSeries.map(point => ({ agent: selectedAgent.agentName, window: point.window, latency_ms: point.latency, error_rate_pct: point.errorRate, api_cost_usd: point.cost, token_usage: point.tokens }))) }>CSV exportieren</Button>
+            </div>
+          </div>
+          <div className="mt-5 flex flex-wrap gap-2">
+            {(["latency", "errorRate", "cost", "tokens"] as const).map(metric => (
+              <Button key={metric} variant="outline" className={`rounded-xl border-slate-300 ${selectedMetric === metric ? "bg-slate-950 text-white hover:bg-slate-900" : ""}`} onClick={() => setSelectedMetric(metric)}>
+                {metricConfig[metric].label}
+              </Button>
+            ))}
+          </div>
+          <div className="mt-6 grid gap-4 md:grid-cols-3">
+            <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-5">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Fokus-Agent</p>
+              <p className="mt-3 text-lg font-semibold text-slate-950">{selectedAgent.agentName}</p>
+              <p className="mt-2 text-sm text-slate-500">Fenster {selectedAgent.windowLabel} · aktualisiert {timeAgo(selectedAgent.capturedAt)}</p>
+            </div>
+            <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-5">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Aktueller KPI</p>
+              <p className="mt-3 text-lg font-semibold text-slate-950">{selectedMetricConfig.formatter(trendSeries[trendSeries.length - 1][selectedMetric])}</p>
+              <p className="mt-2 text-sm text-slate-500">Drilldown auf {selectedMetricConfig.label}</p>
+            </div>
+            <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-5">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Veränderung 24h</p>
+              <p className="mt-3 text-lg font-semibold text-slate-950">{selectedMetricConfig.formatter(trendSeries[trendSeries.length - 1][selectedMetric] - trendSeries[0][selectedMetric])}</p>
+              <p className="mt-2 text-sm text-slate-500">Differenz zwischen erstem und letztem Verlaufspunkt.</p>
+            </div>
+          </div>
+          <div className="mt-6 h-[320px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={trendSeries}>
+                <defs>
+                  <linearGradient id="drilldownGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#0f172a" stopOpacity={0.24} />
+                    <stop offset="95%" stopColor="#0f172a" stopOpacity={0.02} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid stroke="#e2e8f0" vertical={false} />
+                <XAxis dataKey="window" tickLine={false} axisLine={false} tick={{ fill: "#64748b", fontSize: 12 }} />
+                <YAxis tickLine={false} axisLine={false} tick={{ fill: "#64748b", fontSize: 12 }} />
+                <Tooltip formatter={(value: number) => selectedMetricConfig.formatter(Number(value))} />
+                <Area type="monotone" dataKey={selectedMetric} stroke="#0f172a" fill="url(#drilldownGradient)" strokeWidth={2} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </Surface>
+        <Surface className="p-6">
+          <p className="text-sm font-semibold text-slate-950">Verlaufs- und Exportmatrix</p>
+          <p className="mt-2 text-sm leading-6 text-slate-600">Die Matrix fasst pro Zeitfenster den aktuellen Fokus-KPI mit den flankierenden Kosten-, Fehler- und Tokenwerten zusammen.</p>
+          <div className="mt-5 space-y-3">
+            {trendSeries.map(point => (
+              <div key={point.window} className="rounded-[24px] border border-slate-200/80 bg-white px-5 py-4 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-950">{point.window}</p>
+                    <p className="mt-2 text-sm text-slate-600">{selectedMetricConfig.label}: {selectedMetricConfig.formatter(point[selectedMetric])}</p>
+                  </div>
+                  <ModuleBadge label={selectedMetricConfig.label} tone={selectedMetricConfig.tone} />
+                </div>
+                <div className="mt-4 grid gap-2 text-sm text-slate-600">
+                  <div className="flex justify-between"><span>Latenz</span><span className="font-medium text-slate-950">{formatNumber(point.latency)} ms</span></div>
+                  <div className="flex justify-between"><span>Fehlerrate</span><span className="font-medium text-slate-950">{point.errorRate.toFixed(2)}%</span></div>
+                  <div className="flex justify-between"><span>API-Kosten</span><span className="font-medium text-slate-950">{formatCurrency(point.cost)}</span></div>
+                  <div className="flex justify-between"><span>Tokens</span><span className="font-medium text-slate-950">{formatNumber(point.tokens)}</span></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Surface>
+      </div>
       <Surface className="p-6">
         <div className="grid gap-4 md:grid-cols-3">
           {data.metrics.map(item => (
-            <div key={item.id} className="rounded-[24px] border border-slate-200/80 bg-white px-5 py-5 shadow-sm">
-              <p className="text-sm font-semibold text-slate-950">{item.agentName}</p>
-              <div className="mt-4 grid gap-2 text-sm text-slate-600">
-                <div className="flex justify-between"><span>Latenz</span><span className="font-medium text-slate-950">{item.latencyMs} ms</span></div>
-                <div className="flex justify-between"><span>Fehlerrate</span><span className="font-medium text-slate-950">{item.errorRate}%</span></div>
-                <div className="flex justify-between"><span>API-Kosten</span><span className="font-medium text-slate-950">{formatCurrency(item.apiCostUsd)}</span></div>
-                <div className="flex justify-between"><span>Tokens</span><span className="font-medium text-slate-950">{formatNumber(item.tokenUsage)}</span></div>
+            <div key={item.id} className={`rounded-[24px] border px-5 py-5 shadow-sm ${selectedAgent.agentId === item.agentId ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200/80 bg-white"}`}>
+              <div className="flex items-center justify-between gap-3">
+                <p className={`text-sm font-semibold ${selectedAgent.agentId === item.agentId ? "text-white" : "text-slate-950"}`}>{item.agentName}</p>
+                <Button variant="outline" className={`rounded-xl ${selectedAgent.agentId === item.agentId ? "border-white/30 text-white hover:bg-white/10" : "border-slate-300"}`} onClick={() => setSelectedAgentId(item.agentId)}>Drilldown</Button>
+              </div>
+              <div className={`mt-4 grid gap-2 text-sm ${selectedAgent.agentId === item.agentId ? "text-slate-200" : "text-slate-600"}`}>
+                <div className="flex justify-between"><span>Latenz</span><span className={`font-medium ${selectedAgent.agentId === item.agentId ? "text-white" : "text-slate-950"}`}>{item.latencyMs} ms</span></div>
+                <div className="flex justify-between"><span>Fehlerrate</span><span className={`font-medium ${selectedAgent.agentId === item.agentId ? "text-white" : "text-slate-950"}`}>{item.errorRate}%</span></div>
+                <div className="flex justify-between"><span>API-Kosten</span><span className={`font-medium ${selectedAgent.agentId === item.agentId ? "text-white" : "text-slate-950"}`}>{formatCurrency(item.apiCostUsd)}</span></div>
+                <div className="flex justify-between"><span>Tokens</span><span className={`font-medium ${selectedAgent.agentId === item.agentId ? "text-white" : "text-slate-950"}`}>{formatNumber(item.tokenUsage)}</span></div>
               </div>
             </div>
           ))}

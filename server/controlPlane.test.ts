@@ -43,8 +43,12 @@ describe("control plane router", () => {
     expect(snapshot.agents.length).toBeGreaterThan(0);
     expect(snapshot.policies.length).toBeGreaterThan(0);
     expect(snapshot.approvals.length).toBeGreaterThan(0);
+    expect(snapshot.approvalNotifications.length).toBeGreaterThan(0);
     expect(snapshot.auditEvents.length).toBeGreaterThan(0);
     expect(snapshot.metrics.length).toBeGreaterThan(0);
+    expect(snapshot.metrics[0]?.history).toHaveLength(6);
+    expect(snapshot.metrics[0]?.history[0]?.window).toMatch(/^T-/);
+    expect(snapshot.metrics[0]?.history[5]).toMatchObject({ window: "Jetzt" });
   });
 
   it("returns privacy protection metadata in the snapshot", async () => {
@@ -199,6 +203,21 @@ describe("control plane router", () => {
     expect(escalated.escalationStatus).toBe("escalated");
     expect(escalated.stages[1]?.status).toBe("escalated");
     expect(escalated.stages[1]?.ownerLabel).toBe("Executive Risk Committee");
+  });
+
+  it("sends role-based approval notifications with the extended payload", async () => {
+    const caller = appRouter.createCaller(createAuthContext());
+
+    const result = await caller.approvals.notify({
+      approvalTitle: "Kulanzgutschrift für Enterprise-Kunde · CS Lead Approval",
+      severity: "high",
+      recipientRole: "approver",
+      ownerLabel: "Customer Success Lead",
+      escalationTarget: "VP Customer Success",
+      actionType: "review",
+    });
+
+    expect(result).toEqual({ delivered: expect.any(Boolean) });
   });
 
   it("creates and updates a custom approval chain via the persistent editor endpoints", async () => {
