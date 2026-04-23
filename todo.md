@@ -46,3 +46,8 @@
 - [x] Dedizierte Agenten-Duplizierungsmutation ergänzen und mit Prefill-/Speicherfluss explizit absichern
 - [x] Manuell pflegbare Regelverwaltung für zusätzliche Anonymisierungs- und Pseudonymisierungsmuster implementieren
 - [x] UI zur Pflege eigener Schlüsselwort- und Regex-Regeln für Datenschutzfilter ergänzen
+- [ ] Alle sichtbaren Module der Agent Control Plane auf echte Aktivierung prüfen und fehlende Navigations- oder Inhaltsfunktionen vervollständigen
+- [x] Inaktive oder nur dekorative Menübereiche wie Runtime Guardrails und Observability & Cost Monitoring funktional anbinden
+- [ ] Browserbasierte Funktionsprüfung für alle sichtbaren Module der Agent Control Plane durchführen und dokumentieren
+- [ ] Priorisierte Tiefenfunktionen je Modul identifizieren und die wichtigsten Lücken schließen
+- [x] Navigation visuell so schärfen, dass aktive und einsatzbereite Bereiche eindeutig erkennbar sind

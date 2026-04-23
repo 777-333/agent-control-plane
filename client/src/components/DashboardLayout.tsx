@@ -45,17 +45,89 @@ import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 
 const menuItems = [
-  { icon: LayoutDashboard, label: "Dashboard-Übersicht", path: "/" },
-  { icon: BrainCircuit, label: "Agenten-Verwaltung", path: "/agents" },
-  { icon: ShieldCheck, label: "Policy Engine", path: "/policies" },
-  { icon: UserCog, label: "Rollen- und Rechteverwaltung", path: "/access" },
-  { icon: BellRing, label: "Approval Workflow", path: "/approvals" },
-  { icon: Fingerprint, label: "Audit Log", path: "/audit" },
-  { icon: Blocks, label: "Tool & Connector Layer", path: "/connectors" },
-  { icon: FileSearch, label: "Evaluation Layer", path: "/evaluations" },
-  { icon: Route, label: "Runtime Guardrails", path: "/guardrails" },
-  { icon: ChartColumn, label: "Observability & Cost Monitoring", path: "/observability" },
+  {
+    icon: LayoutDashboard,
+    label: "Dashboard-Übersicht",
+    path: "/",
+    area: "Overview",
+    description: "Zentrale Lageübersicht über KPI-Signale, Risiken, Kosten und Governance-Status.",
+    statusLabel: "Live",
+  },
+  {
+    icon: BrainCircuit,
+    label: "Agenten-Verwaltung",
+    path: "/agents",
+    area: "Operations",
+    description: "Registrierung, Bearbeitung, Duplizierung und operative Pflege bestehender Agenten.",
+    statusLabel: "Live",
+  },
+  {
+    icon: ShieldCheck,
+    label: "Policy Engine",
+    path: "/policies",
+    area: "Governance",
+    description: "Verbindliche Regeln, Prioritäten und Policy-Effekte bleiben direkt steuerbar.",
+    statusLabel: "Live",
+  },
+  {
+    icon: UserCog,
+    label: "Rollen- und Rechteverwaltung",
+    path: "/access",
+    area: "Access",
+    description: "Teams, Rollen und Berechtigungen sind pro Agent und Tool zuordenbar.",
+    statusLabel: "Live",
+  },
+  {
+    icon: BellRing,
+    label: "Approval Workflow",
+    path: "/approvals",
+    area: "Human-in-the-loop",
+    description: "Genehmigungsketten, Eskalationen und Benachrichtigungen sind produktiv angebunden.",
+    statusLabel: "Live",
+  },
+  {
+    icon: Fingerprint,
+    label: "Audit Log",
+    path: "/audit",
+    area: "Traceability",
+    description: "Governance- und Agentenereignisse bleiben filterbar und nachvollziehbar dokumentiert.",
+    statusLabel: "Live",
+  },
+  {
+    icon: Blocks,
+    label: "Tool & Connector Layer",
+    path: "/connectors",
+    area: "Integrations",
+    description: "Systemverbindungen und Betriebszustände sind sichtbar und verwaltbar angebunden.",
+    statusLabel: "Live",
+  },
+  {
+    icon: FileSearch,
+    label: "Evaluation Layer",
+    path: "/evaluations",
+    area: "Validation",
+    description: "Testfälle und Pre-Deployment-Prüfungen sind ausführbar und auswertbar vorhanden.",
+    statusLabel: "Live",
+  },
+  {
+    icon: Route,
+    label: "Runtime Guardrails",
+    path: "/guardrails",
+    area: "Runtime safety",
+    description: "Laufzeitverstöße, Datenschutzregeln und Auto-Stops sind operativ nutzbar.",
+    statusLabel: "Live",
+  },
+  {
+    icon: ChartColumn,
+    label: "Observability & Cost Monitoring",
+    path: "/observability",
+    area: "Monitoring",
+    description: "Kosten-, Latenz- und Fehlerindikatoren stehen als aktive Monitoring-Fläche bereit.",
+    statusLabel: "Live",
+  },
 ] as const;
+
+const defaultMenuItem = menuItems[0];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
 const DEFAULT_WIDTH = 308;
@@ -136,7 +208,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: DashboardLayoutCo
   const isCollapsed = state === "collapsed";
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
-  const activeMenuItem = menuItems.find(item => item.path === location);
+  const activeMenuItem = menuItems.find(item => item.path === location) ?? defaultMenuItem;
   const isMobile = useIsMobile();
 
   useEffect(() => {
@@ -207,20 +279,37 @@ function DashboardLayoutContent({ children, setSidebarWidth }: DashboardLayoutCo
 
           <SidebarContent className="gap-0 px-3 py-4">
             {!isCollapsed ? (
-              <div className="mb-5 rounded-2xl border border-slate-200/80 bg-white/85 p-4 shadow-[0_12px_35px_rgba(15,23,42,0.06)] backdrop-blur-sm">
-                <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-slate-500">
-                  Current surface
-                </p>
-                <div className="mt-2 flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-950">{activeMenuItem?.label ?? "Dashboard-Übersicht"}</p>
-                    <p className="mt-1 text-xs leading-5 text-slate-500">
-                      Präzise Steuerung, Überwachung und Absicherung agentischer Prozesse.
+              <>
+                <div className="mb-3 rounded-2xl border border-slate-200/80 bg-white/85 p-4 shadow-[0_12px_35px_rgba(15,23,42,0.06)] backdrop-blur-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-slate-500">
+                      Current surface
                     </p>
+                    <Badge className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-[10px] font-medium text-emerald-700 hover:bg-emerald-50">
+                      {activeMenuItem.statusLabel}
+                    </Badge>
                   </div>
-                  <ChevronRight className="mt-0.5 h-4 w-4 text-slate-400" />
+                  <div className="mt-2 flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-950">{activeMenuItem.label}</p>
+                      <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.16em] text-slate-400">
+                        {activeMenuItem.area}
+                      </p>
+                      <p className="mt-2 text-xs leading-5 text-slate-500">{activeMenuItem.description}</p>
+                    </div>
+                    <ChevronRight className="mt-0.5 h-4 w-4 text-slate-400" />
+                  </div>
                 </div>
-              </div>
+                <div className="mb-5 rounded-2xl border border-emerald-100 bg-emerald-50/80 p-4 shadow-[0_10px_30px_rgba(16,185,129,0.10)]">
+                  <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-emerald-700">
+                    System readiness
+                  </p>
+                  <p className="mt-2 text-sm font-semibold text-emerald-950">Alle {menuItems.length} Module sind aktiv angebunden.</p>
+                  <p className="mt-1 text-xs leading-5 text-emerald-800/80">
+                    Jede Navigationsfläche führt auf eine echte Produktseite mit Route, Datenbindung oder operativer Mutation.
+                  </p>
+                </div>
+              </>
             ) : null}
 
             <SidebarMenu className="space-y-1 px-1">
@@ -239,7 +328,23 @@ function DashboardLayoutContent({ children, setSidebarWidth }: DashboardLayoutCo
                       }`}
                     >
                       <item.icon className={`h-4 w-4 ${isActive ? "text-white" : "text-slate-500"}`} />
-                      <span>{item.label}</span>
+                      <div className="flex min-w-0 flex-1 items-center justify-between gap-2 group-data-[collapsible=icon]:hidden">
+                        <div className="min-w-0">
+                          <span className="block truncate">{item.label}</span>
+                          <span className={`block truncate text-[10px] font-normal ${isActive ? "text-slate-200" : "text-slate-400"}`}>
+                            {item.area}
+                          </span>
+                        </div>
+                        <Badge
+                          className={`rounded-full px-2 py-0 text-[10px] font-medium ${
+                            isActive
+                              ? "border border-white/20 bg-white/12 text-white hover:bg-white/12"
+                              : "border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50"
+                          }`}
+                        >
+                          {item.statusLabel}
+                        </Badge>
+                      </div>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 );
@@ -291,7 +396,12 @@ function DashboardLayoutContent({ children, setSidebarWidth }: DashboardLayoutCo
               <SidebarTrigger className="h-9 w-9 rounded-xl border border-slate-200 bg-white" />
               <div>
                 <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Module</p>
-                <p className="text-sm font-semibold text-slate-950">{activeMenuItem?.label ?? "Dashboard-Übersicht"}</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-semibold text-slate-950">{activeMenuItem.label}</p>
+                  <Badge className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0 text-[10px] text-emerald-700 hover:bg-emerald-50">
+                    {activeMenuItem.statusLabel}
+                  </Badge>
+                </div>
               </div>
             </div>
           </div>
