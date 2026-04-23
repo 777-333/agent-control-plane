@@ -308,6 +308,9 @@ function DashboardLayoutContent({ children, setSidebarWidth }: DashboardLayoutCo
                   <p className="mt-1 text-xs leading-5 text-emerald-800/80">
                     Jede Navigationsfläche führt auf eine echte Produktseite mit Route, Datenbindung oder operativer Mutation.
                   </p>
+                  <p className="mt-2 text-xs leading-5 text-emerald-900">
+                    Aktuelle Route: {activeMenuItem.label} · {activeMenuItem.area}
+                  </p>
                 </div>
               </>
             ) : null}
@@ -406,7 +409,22 @@ function DashboardLayoutContent({ children, setSidebarWidth }: DashboardLayoutCo
             </div>
           </div>
         ) : null}
-        <main className="min-h-screen flex-1 p-4 md:p-6 lg:p-8">{children}</main>
+        <main className="min-h-screen flex-1 p-4 md:p-6 lg:p-8">
+          <div className="mb-6 rounded-[28px] border border-slate-200/80 bg-white/80 px-5 py-5 shadow-[0_18px_50px_rgba(15,23,42,0.05)] backdrop-blur-sm">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div className="max-w-3xl">
+                <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-slate-400">Current route</p>
+                <h1 className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-slate-950">{activeMenuItem.label}</h1>
+                <p className="mt-2 text-sm font-medium uppercase tracking-[0.16em] text-slate-400">{activeMenuItem.area}</p>
+                <p className="mt-3 text-sm leading-6 text-slate-600">{activeMenuItem.description}</p>
+              </div>
+              <Badge className="w-fit rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-medium text-emerald-700 hover:bg-emerald-50">
+                {activeMenuItem.statusLabel}
+              </Badge>
+            </div>
+          </div>
+          {children}
+        </main>
       </SidebarInset>
     </>
   );

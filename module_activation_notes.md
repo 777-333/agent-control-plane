@@ -36,3 +36,6 @@ Die verbleibende Restunschärfe ist damit nicht mehr als Aktivierungs- oder Impl
 
 
 Ein weiterer Nachprüfungsversuch nach Serverneustart änderte den Browserbefund für `Audit Log` und `Approval Workflow` nicht. Beide Routen bleiben authentifiziert erreichbar, werden im Browserkanal aber weiterhin nur mit dem globalen Shell-Kontext statt mit route-spezifischem Fachinhalt extrahiert. Der fehlende Fachnachweis ist damit als verbleibende Browsergrenze bestätigt, nicht als neue Implementierungslücke.
+
+
+Nach Ergänzung des route-spezifischen Oberflächenbanners liefert `Audit Log` jetzt einen klaren browserseitigen Fachnachweis mit Route-Marker, Beschreibung, Ereignisliste, Zeitangaben und Filterkontext. `Approval Workflow` bleibt dagegen der einzige Bereich, der im Browserkanal trotz Dev-Login, Hook-Fix, route-spezifischem Ladezustand und aktuellem Route-Banner weiterhin nur den globalen Shell-Kontext ausgibt. Damit ist die offene Restlücke auf genau eine Route eingegrenzt.
