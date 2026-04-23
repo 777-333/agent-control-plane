@@ -50,3 +50,11 @@ Nach Ergänzung des route-spezifischen Oberflächenbanners liefert `Audit Log` j
 
 - **Approval Workflow:** Die Route wird im Browser jetzt mindestens mit dem expliziten Marker `Aktuelle Route: Approval Workflow · Human-in-the-loop` bestätigt. Die neue sichtbare Zustellungsinbox ist damit route-seitig verankert, auch wenn der Markdown-Extrakt auf dieser Seite weiterhin nicht den gesamten Inhaltsblock ausgibt.
 - **Observability:** Der Browser extrahiert jetzt zusätzlich zum Modulkontext die KPI-Drilldown-Sektion mit Verlaufspunkten `-24h`, `-12h`, `-6h`, `-3h`, `-1h` und `Jetzt`. Damit ist der serverseitig gelieferte Verlaufsdatensatz browserseitig klar nachweisbar.
+
+## Nachprüfung der Agenten-Verwaltung nach Schwarm-Ausbau
+
+Die Route **/agents** wurde nach der Erweiterung um Schwarm-Bearbeitung, Nachrichtenverläufe und Governance erneut authentifiziert geöffnet. Der Browserkanal bestätigt weiterhin die produktive Fachfläche **„Agenten-Verwaltung · Operations“** innerhalb der laufenden Control Plane und damit die saubere Anbindung der neuen Schwarm-Funktionen an die echte Modulnavigation.
+
+Die tieferen Erweiterungen wurden zusätzlich testseitig abgesichert. Die aktuelle Suite deckt nun sowohl erfolgreiche Nachrichtenprotokolle je Kommunikationspfad als auch Governance-bedingte Sperren für sensible Schwarm-Nachrichten ab. Damit liegt für den jüngsten Schwarm-Ausbau ein kombinierter Nachweis aus Route-Erreichbarkeit, Frontend-Einbindung und serverseitiger Verhaltensprüfung vor.
+
+Die Agenten-Verwaltung liefert nach dem neuen Kommunikationsmarker jetzt auch einen klaren browserseitigen Fachnachweis für den Schwarm-Kommunikationsbereich. Im Extrakt erscheinen konkrete Kommunikationspfade wie **„Finance Sentinel → Support Orchestrator“**, die Kanaltypen **`decision-feedback`**, **`approval-context`** und **`briefing-sync`** sowie mehrfach der Abschnitt **„Nachrichtenverlauf“** mit einzelnen protokollierten Einträgen. Damit sind die sichtbare Nachrichtenhistorie und der Kommunikationskontext des Schwarms nun nicht mehr nur code- und testbasiert, sondern auch browserseitig belegbar.

@@ -128,6 +128,15 @@ type AgentRecord = {
 type AgentSwarmTopology = "mesh" | "hub_spoke" | "pipeline";
 type AgentSwarmCoordinationMode = "consensus" | "planner_executor" | "supervisor";
 
+type AgentSwarmMessageRecord = {
+  id: number;
+  senderAgentId: number;
+  senderAgentName: string;
+  content: string;
+  kind: "directive" | "status" | "evidence" | "approval";
+  createdAt: number;
+};
+
 type AgentSwarmCommunicationRecord = {
   id: number;
   fromAgentId: number;
@@ -139,6 +148,14 @@ type AgentSwarmCommunicationRecord = {
   purpose: string;
   lastMessageAt: number;
   status: "active" | "idle" | "degraded";
+  history: AgentSwarmMessageRecord[];
+};
+
+type AgentSwarmGovernanceRecord = {
+  policyMode: "monitoring" | "approval_required" | "enforced";
+  approvalRequired: boolean;
+  approverRole: string;
+  escalationTarget: string;
 };
 
 type AgentSwarmRecord = {
@@ -153,6 +170,7 @@ type AgentSwarmRecord = {
   createdAt: number;
   memberAgentIds: number[];
   communicationLinks: AgentSwarmCommunicationRecord[];
+  governance: AgentSwarmGovernanceRecord;
 };
 
 type PolicyRecord = {
@@ -345,6 +363,7 @@ const now = Date.now();
 let nextAgentId = 4;
 let nextSwarmId = 2;
 let nextSwarmCommunicationId = 100;
+let nextSwarmMessageId = 1000;
 let nextPolicyId = 4;
 let nextTeamId = 4;
 let nextPermissionId = 5;
@@ -432,6 +451,12 @@ const agentSwarmsData: AgentSwarmRecord[] = [
     environment: "production",
     createdAt: now - 1000 * 60 * 90,
     memberAgentIds: [1, 2, 3],
+    governance: {
+      policyMode: "approval_required",
+      approvalRequired: true,
+      approverRole: "finance_approver",
+      escalationTarget: "Head of Operations",
+    },
     communicationLinks: [
       {
         id: 1,
@@ -444,6 +469,24 @@ const agentSwarmsData: AgentSwarmRecord[] = [
         purpose: "Leitet eskalierte Fallakten an den Governance-Agenten zur Risiko- und Freigabeprüfung weiter.",
         lastMessageAt: now - 1000 * 60 * 8,
         status: "active",
+        history: [
+          {
+            id: 1,
+            senderAgentId: 2,
+            senderAgentName: "Support Orchestrator",
+            content: "Fallakte #IR-221 mit Zahlungsstopp und Kundenhistorie zur Freigabeprüfung übergeben.",
+            kind: "directive",
+            createdAt: now - 1000 * 60 * 22,
+          },
+          {
+            id: 2,
+            senderAgentId: 2,
+            senderAgentName: "Support Orchestrator",
+            content: "Zusätzliche Guardrail-Signale ergänzt: ungewöhnliche Auszahlungshöhe und manueller ERP-Override.",
+            kind: "status",
+            createdAt: now - 1000 * 60 * 8,
+          },
+        ],
       },
       {
         id: 2,
@@ -456,6 +499,24 @@ const agentSwarmsData: AgentSwarmRecord[] = [
         purpose: "Liefert Quellen- und Kontextbriefings für die operative Kundenkommunikation.",
         lastMessageAt: now - 1000 * 60 * 11,
         status: "active",
+        history: [
+          {
+            id: 3,
+            senderAgentId: 3,
+            senderAgentName: "Research Navigator",
+            content: "Lieferantenhistorie, offene Claims und regulatorische Quellen für den Incident gebündelt.",
+            kind: "evidence",
+            createdAt: now - 1000 * 60 * 27,
+          },
+          {
+            id: 4,
+            senderAgentId: 3,
+            senderAgentName: "Research Navigator",
+            content: "Aktualisierte Quellenlage bestätigt erhöhtes Rückforderungsrisiko bei sofortiger Auszahlung.",
+            kind: "evidence",
+            createdAt: now - 1000 * 60 * 11,
+          },
+        ],
       },
       {
         id: 3,
@@ -468,6 +529,24 @@ const agentSwarmsData: AgentSwarmRecord[] = [
         purpose: "Gibt Freigabeergebnisse und Guardrail-Hinweise an den koordinierenden Agenten zurück.",
         lastMessageAt: now - 1000 * 60 * 4,
         status: "active",
+        history: [
+          {
+            id: 5,
+            senderAgentId: 1,
+            senderAgentName: "Finance Sentinel",
+            content: "Freigabe nur mit CFO-Review und zusätzlichem Nachweis zum ERP-Override erteilen.",
+            kind: "approval",
+            createdAt: now - 1000 * 60 * 15,
+          },
+          {
+            id: 6,
+            senderAgentId: 1,
+            senderAgentName: "Finance Sentinel",
+            content: "Policy-Verstoß markiert, Support-Orchestrierung auf Eskalationspfad umstellen.",
+            kind: "approval",
+            createdAt: now - 1000 * 60 * 4,
+          },
+        ],
       },
     ],
   },
@@ -1255,8 +1334,34 @@ type AgentSwarmMutationInput = {
   team: string;
   owner: string;
   environment: string;
+  governance: AgentSwarmGovernanceRecord;
   members: AgentSwarmMemberInput[];
 };
+
+type AgentSwarmDissolveMode = "retain_agents" | "remove_agents";
+
+function buildSwarmMessageHistory(from: AgentRecord, to: AgentRecord, channel: string, purpose: string, createdAt: number) {
+  const firstKind = channel.includes("brief") ? "evidence" : channel.includes("result") ? "status" : channel.includes("approval") ? "approval" : "directive";
+
+  return [
+    {
+      id: nextSwarmMessageId++,
+      senderAgentId: from.id,
+      senderAgentName: from.name,
+      content: `${from.name} startet den Kommunikationspfad ${channel} für ${to.name}. Fokus: ${purpose}`,
+      kind: firstKind as AgentSwarmMessageRecord["kind"],
+      createdAt,
+    },
+    {
+      id: nextSwarmMessageId++,
+      senderAgentId: from.id,
+      senderAgentName: from.name,
+      content: `${from.name} übermittelt ein strukturiertes Update an ${to.name}, damit der Schwarm ohne Medienbruch weiterarbeiten kann.`,
+      kind: "status" as const,
+      createdAt: createdAt + 1000 * 60 * 3,
+    },
+  ];
+}
 
 function buildSwarmCommunicationLinks(swarmId: number, members: AgentRecord[], topology: AgentSwarmTopology) {
   const pairs: Array<{ from: AgentRecord; to: AgentRecord; channel: string; protocol: string; purpose: string }> = [];
@@ -1305,19 +1410,23 @@ function buildSwarmCommunicationLinks(swarmId: number, members: AgentRecord[], t
     });
   }
 
-  return pairs.map(pair => ({
-    id: nextSwarmCommunicationId++,
-    fromAgentId: pair.from.id,
-    fromAgentName: pair.from.name,
-    toAgentId: pair.to.id,
-    toAgentName: pair.to.name,
-    channel: pair.channel,
-    protocol: pair.protocol,
-    purpose: pair.purpose,
-    lastMessageAt: Date.now(),
-    status: "active" as const,
-    swarmId,
-  })).map(({ swarmId: _swarmId, ...link }) => link);
+  return pairs.map(pair => {
+    const history = buildSwarmMessageHistory(pair.from, pair.to, pair.channel, pair.purpose, Date.now() - 1000 * 60 * 12);
+    return {
+      id: nextSwarmCommunicationId++,
+      fromAgentId: pair.from.id,
+      fromAgentName: pair.from.name,
+      toAgentId: pair.to.id,
+      toAgentName: pair.to.name,
+      channel: pair.channel,
+      protocol: pair.protocol,
+      purpose: pair.purpose,
+      lastMessageAt: history[history.length - 1]?.createdAt ?? Date.now(),
+      status: "active" as const,
+      history,
+      swarmId,
+    };
+  }).map(({ swarmId: _swarmId, ...link }) => link);
 }
 
 export async function createAgent(input: AgentMutationInput) {
@@ -1387,34 +1496,32 @@ export async function duplicateAgent(input: AgentMutationInput & { sourceAgentId
   return duplicatedAgent;
 }
 
-export async function listAgentSwarms() {
-  return [...agentSwarmsData]
-    .map(swarm => ({
-      ...swarm,
-      memberAgentIds: [...swarm.memberAgentIds],
-      communicationLinks: [...swarm.communicationLinks].sort((a, b) => b.lastMessageAt - a.lastMessageAt),
-    }))
-    .sort((a, b) => b.createdAt - a.createdAt);
+function cloneAgentSwarm(swarm: AgentSwarmRecord) {
+  return {
+    ...swarm,
+    memberAgentIds: [...swarm.memberAgentIds],
+    communicationLinks: [...swarm.communicationLinks]
+      .map(link => ({
+        ...link,
+        history: [...link.history].sort((a, b) => a.createdAt - b.createdAt),
+      }))
+      .sort((a, b) => b.lastMessageAt - a.lastMessageAt),
+    governance: { ...swarm.governance },
+  };
 }
 
-export async function createAgentSwarm(input: AgentSwarmMutationInput) {
-  if (input.members.length < 2) {
-    throw new Error("Ein Agenten-Schwarm benötigt mindestens zwei Mitglieder.");
-  }
-
-  const swarmId = nextSwarmId++;
-  const createdAt = Date.now();
-  const swarmMembers: AgentRecord[] = input.members.map((member, index) => ({
+function createSwarmMembers(swarmId: number, input: AgentSwarmMutationInput, createdAt: number) {
+  return input.members.map((member, index) => ({
     id: nextAgentId++,
     name: member.name,
     description: member.description,
-    status: "healthy",
-    riskLevel: index === 0 ? "high" : "medium",
+    status: "healthy" as const,
+    riskLevel: index === 0 ? "high" as const : "medium" as const,
     team: input.team,
     owner: input.owner,
     model: member.model,
     environment: input.environment,
-    policyMode: input.coordinationMode === "supervisor" ? "approval-aware" : "monitoring",
+    policyMode: input.governance.policyMode === "approval_required" ? "approval-aware" : input.governance.policyMode,
     lastHeartbeat: createdAt,
     monthlyCostUsd: 0,
     tokenUsage: 0,
@@ -1425,6 +1532,22 @@ export async function createAgentSwarm(input: AgentSwarmMutationInput) {
     swarmRole: member.role,
     communicationMode: input.coordinationMode,
   }));
+}
+
+export async function listAgentSwarms() {
+  return [...agentSwarmsData]
+    .map(cloneAgentSwarm)
+    .sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export async function createAgentSwarm(input: AgentSwarmMutationInput) {
+  if (input.members.length < 2) {
+    throw new Error("Ein Agenten-Schwarm benötigt mindestens zwei Mitglieder.");
+  }
+
+  const swarmId = nextSwarmId++;
+  const createdAt = Date.now();
+  const swarmMembers = createSwarmMembers(swarmId, input, createdAt);
 
   const communicationLinks = buildSwarmCommunicationLinks(swarmId, swarmMembers, input.topology);
   const swarm: AgentSwarmRecord = {
@@ -1439,13 +1562,136 @@ export async function createAgentSwarm(input: AgentSwarmMutationInput) {
     createdAt,
     memberAgentIds: swarmMembers.map(member => member.id),
     communicationLinks,
+    governance: { ...input.governance },
   };
 
   agentsData.unshift(...swarmMembers.slice().reverse());
   agentSwarmsData.unshift(swarm);
   return {
-    ...swarm,
+    ...cloneAgentSwarm(swarm),
     members: swarmMembers,
+  };
+}
+
+export async function updateAgentSwarm(input: AgentSwarmMutationInput & { id: number }) {
+  const swarm = agentSwarmsData.find(item => item.id === input.id);
+
+  if (!swarm) {
+    throw new Error(`Agenten-Schwarm ${input.id} wurde nicht gefunden.`);
+  }
+
+  if (input.members.length < 2) {
+    throw new Error("Ein Agenten-Schwarm benötigt mindestens zwei Mitglieder.");
+  }
+
+  const previousMemberIds = new Set(swarm.memberAgentIds);
+  for (let index = agentsData.length - 1; index >= 0; index -= 1) {
+    if (previousMemberIds.has(agentsData[index]!.id)) {
+      agentsData.splice(index, 1);
+    }
+  }
+
+  const createdAt = swarm.createdAt;
+  const swarmMembers = createSwarmMembers(swarm.id, input, createdAt);
+  swarm.name = input.name;
+  swarm.mission = input.mission;
+  swarm.topology = input.topology;
+  swarm.coordinationMode = input.coordinationMode;
+  swarm.team = input.team;
+  swarm.owner = input.owner;
+  swarm.environment = input.environment;
+  swarm.governance = { ...input.governance };
+  swarm.memberAgentIds = swarmMembers.map(member => member.id);
+  swarm.communicationLinks = buildSwarmCommunicationLinks(swarm.id, swarmMembers, input.topology);
+
+  agentsData.unshift(...swarmMembers.slice().reverse());
+  return {
+    ...cloneAgentSwarm(swarm),
+    members: swarmMembers,
+  };
+}
+
+export async function dissolveAgentSwarm(input: { id: number; mode: AgentSwarmDissolveMode }) {
+  const swarmIndex = agentSwarmsData.findIndex(item => item.id === input.id);
+
+  if (swarmIndex === -1) {
+    throw new Error(`Agenten-Schwarm ${input.id} wurde nicht gefunden.`);
+  }
+
+  const swarm = agentSwarmsData[swarmIndex]!;
+  const memberIds = new Set(swarm.memberAgentIds);
+
+  if (input.mode === "remove_agents") {
+    for (let index = agentsData.length - 1; index >= 0; index -= 1) {
+      if (memberIds.has(agentsData[index]!.id)) {
+        agentsData.splice(index, 1);
+      }
+    }
+  } else {
+    agentsData.forEach(agent => {
+      if (memberIds.has(agent.id)) {
+        agent.swarmId = null;
+        agent.swarmName = null;
+        agent.swarmRole = null;
+        agent.communicationMode = null;
+      }
+    });
+  }
+
+  agentSwarmsData.splice(swarmIndex, 1);
+  return {
+    id: input.id,
+    mode: input.mode,
+    removedMembers: memberIds.size,
+  };
+}
+
+export async function postAgentSwarmMessage(input: {
+  swarmId: number;
+  communicationLinkId: number;
+  senderAgentId: number;
+  content: string;
+  kind: AgentSwarmMessageRecord["kind"];
+}) {
+  const swarm = agentSwarmsData.find(item => item.id === input.swarmId);
+
+  if (!swarm) {
+    throw new Error(`Agenten-Schwarm ${input.swarmId} wurde nicht gefunden.`);
+  }
+
+  const link = swarm.communicationLinks.find(item => item.id === input.communicationLinkId);
+  if (!link) {
+    throw new Error(`Kommunikationspfad ${input.communicationLinkId} wurde nicht gefunden.`);
+  }
+
+  if (link.fromAgentId !== input.senderAgentId) {
+    throw new Error("Nachrichten dürfen nur vom definierten Quellagenten des Kommunikationspfads gesendet werden.");
+  }
+
+  const isSensitiveAction = /deploy|payment|delete|transfer|production/i.test(input.content);
+  if (isSensitiveAction && swarm.governance.approvalRequired && input.kind !== "approval") {
+    throw new Error(`Schwarm-Governance verlangt vor sensiblen Aktionen eine Freigabe der Rolle ${swarm.governance.approverRole}.`);
+  }
+
+  if (isSensitiveAction && swarm.governance.policyMode === "enforced" && input.kind === "approval") {
+    throw new Error(`Schwarm-Governance blockiert diese Aktion im Durchsetzungsmodus und eskaliert an ${swarm.governance.escalationTarget}.`);
+  }
+
+  const message = {
+    id: nextSwarmMessageId++,
+    senderAgentId: input.senderAgentId,
+    senderAgentName: link.fromAgentName,
+    content: input.content,
+    kind: input.kind,
+    createdAt: Date.now(),
+  };
+
+  link.history.push(message);
+  link.lastMessageAt = message.createdAt;
+  link.status = isSensitiveAction && input.kind === "approval" ? "degraded" : "active";
+  return {
+    ...link,
+    history: [...link.history],
   };
 }
 

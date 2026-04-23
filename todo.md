@@ -66,3 +66,10 @@
 - [x] Interne Kommunikationsbeziehungen, Rollen und Nachrichtenflüsse innerhalb eines Agenten-Schwarms modellieren und serverseitig verfügbar machen
 - [x] Frontend der Agenten-Verwaltung um Schwarm-Editor, Mitgliederübersicht und Kommunikationssicht erweitern
 - [x] Vitest-Abdeckung und Laufzeitprüfung für Agenten-Schwärme und ihre Kommunikationsflüsse ergänzen
+- [x] Persistente Bearbeitung bestehender Agentenschwärme sowie kontrollierte Auflösung kompletter Schwärme implementieren
+- [x] Nachrichtenprotokolle mit Verlauf pro Kommunikationspfad innerhalb eines Agenten-Schwarms modellieren und in der Oberfläche sichtbar machen
+- [x] Policy- und Approval-Regeln auf Schwarm-Ebene ergänzen, damit Governance-Vorgaben für koordinierte Agentengruppen definiert und angewendet werden können
+- [x] Vitest-Abdeckung für `postSwarmMessage` ergänzen, inklusive erfolgreichem Verlaufseintrag, `lastMessageAt`-Update und Fehlerfall bei falschem Sender oder ungültigem Kommunikationspfad
+- [x] Sichtbaren Nachweis für Nachrichtenhistorie und Composer in der Agenten-Verwaltung ergänzen und browserseitig gegen den laufenden Stand verifizieren
+- [x] Schwarm-Governance auf echtes Verhalten anwenden, indem schwarmweite Approval-/Policy-Durchsetzung in relevanten Agentenaktionen implementiert und getestet wird
+- [x] Browserbasierten Nachweis für Nachrichtenhistorie und Composer in der Agenten-Verwaltung mit klar extrahierbarem Oberflächenmarker vervollständigen

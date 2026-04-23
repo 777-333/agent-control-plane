@@ -117,6 +117,12 @@ describe("control plane router", () => {
       team: "Revenue Operations",
       owner: "Sample User",
       environment: "staging",
+      governance: {
+        policyMode: "approval_required",
+        approvalRequired: true,
+        approverRole: "revenue_approver",
+        escalationTarget: "VP Revenue Operations",
+      },
       members: [
         {
           name: "Recovery Lead",
@@ -138,13 +144,108 @@ describe("control plane router", () => {
     expect(swarm.name).toBe("Revenue Recovery Swarm");
     expect(swarm.members).toHaveLength(2);
     expect(swarm.communicationLinks.length).toBeGreaterThan(0);
+    expect(swarm.governance.policyMode).toBe("approval_required");
     expect(swarm.members.every(member => member.swarmId === swarm.id)).toBe(true);
     expect(swarm.members.map(member => member.swarmRole)).toEqual(["supervisor", "communicator"]);
 
     const snapshot = await caller.controlPlane.snapshot();
     const createdSwarm = snapshot.agentSwarms.find(item => item.id === swarm.id);
     expect(createdSwarm?.memberAgentIds).toHaveLength(2);
+    expect(createdSwarm?.governance.approverRole).toBe("revenue_approver");
     expect(createdSwarm?.communicationLinks[0]?.fromAgentName).toBeTruthy();
+    expect(createdSwarm?.communicationLinks[0]?.history.length).toBeGreaterThan(0);
+  });
+
+  it("records swarm messages on a communication path and rejects invalid senders", async () => {
+    const caller = appRouter.createCaller(createAuthContext());
+    const snapshot = await caller.controlPlane.snapshot();
+    const seededSwarm = snapshot.agentSwarms[0]!;
+    const seededLink = seededSwarm.communicationLinks[0]!;
+    const previousLastMessageAt = seededLink.lastMessageAt;
+
+    const updatedLink = await caller.agents.postSwarmMessage({
+      swarmId: seededSwarm.id,
+      communicationLinkId: seededLink.id,
+      senderAgentId: seededLink.fromAgentId,
+      content: "Aktualisierte Incident-Zusammenfassung mit Freigabekontext an den Zielagenten übermittelt.",
+      kind: "status",
+    });
+
+    expect(updatedLink.history.at(-1)?.content).toContain("Aktualisierte Incident-Zusammenfassung");
+    expect(updatedLink.lastMessageAt).toBeGreaterThanOrEqual(previousLastMessageAt);
+
+    await expect(caller.agents.postSwarmMessage({
+      swarmId: seededSwarm.id,
+      communicationLinkId: seededLink.id,
+      senderAgentId: seededLink.toAgentId,
+      content: "Unzulässiger Sender versucht den Kanal zu verwenden.",
+      kind: "status",
+    })).rejects.toThrow("Quellagenten");
+  });
+
+  it("enforces swarm governance for sensitive communication paths", async () => {
+    const caller = appRouter.createCaller(createAuthContext());
+    const snapshot = await caller.controlPlane.snapshot();
+    const seededSwarm = snapshot.agentSwarms[0]!;
+    const seededLink = seededSwarm.communicationLinks[0]!;
+
+    await expect(caller.agents.postSwarmMessage({
+      swarmId: seededSwarm.id,
+      communicationLinkId: seededLink.id,
+      senderAgentId: seededLink.fromAgentId,
+      content: "Deploy production payment workflow without additional review.",
+      kind: "directive",
+    })).rejects.toThrow("Freigabe der Rolle");
+
+    const approvedLink = await caller.agents.postSwarmMessage({
+      swarmId: seededSwarm.id,
+      communicationLinkId: seededLink.id,
+      senderAgentId: seededLink.fromAgentId,
+      content: "Approved: deploy production payment workflow after finance review.",
+      kind: "approval",
+    });
+
+    expect(approvedLink.history.at(-1)?.kind).toBe("approval");
+
+    const enforcedSwarm = await caller.agents.createSwarm({
+      name: "Prod Enforcement Swarm",
+      mission: "Überwacht produktionsnahe Aktionen und blockiert unzulässige Ausführungen über eine harte Governance.",
+      topology: "pipeline",
+      coordinationMode: "planner_executor",
+      team: "Platform Operations",
+      owner: "Sample User",
+      environment: "production",
+      governance: {
+        policyMode: "enforced",
+        approvalRequired: true,
+        approverRole: "platform_approver",
+        escalationTarget: "Chief Platform Officer",
+      },
+      members: [
+        {
+          name: "Planner",
+          role: "planner",
+          description: "Plant produktionsnahe Änderungen und verteilt Arbeitspakete entlang der Pipeline.",
+          model: "gpt-4.1",
+          tools: ["Runbooks", "Policy Registry"],
+        },
+        {
+          name: "Executor",
+          role: "executor",
+          description: "Führt freigegebene Maßnahmen aus und dokumentiert Rückmeldungen entlang der Pipeline.",
+          model: "gpt-4.1-mini",
+          tools: ["Deploy Console", "Audit Log"],
+        },
+      ],
+    });
+
+    await expect(caller.agents.postSwarmMessage({
+      swarmId: enforcedSwarm.id,
+      communicationLinkId: enforcedSwarm.communicationLinks[0]!.id,
+      senderAgentId: enforcedSwarm.communicationLinks[0]!.fromAgentId,
+      content: "Approved: deploy production changes immediately.",
+      kind: "approval",
+    })).rejects.toThrow("Durchsetzungsmodus");
   });
 
   it("creates custom privacy rules and exposes them through snapshot metadata", async () => {

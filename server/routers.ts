@@ -7,8 +7,10 @@ import {
   applyApprovalChainToApproval,
   createAgent,
   createAgentSwarm,
+  dissolveAgentSwarm,
   duplicateAgent,
   updateAgent,
+  updateAgentSwarm,
   createApprovalChainTemplate,
   createApprovalNotification,
   createEvaluationRun,
@@ -21,6 +23,7 @@ import {
   getControlPlaneSnapshot,
   getDashboardOverview,
   listAgents,
+  postAgentSwarmMessage,
   listApprovalChains,
   listApprovals,
   listAuditEvents,
@@ -79,6 +82,12 @@ export const appRouter = router({
           team: z.string().min(2),
           owner: z.string().min(2),
           environment: z.enum(["production", "staging", "development"]),
+          governance: z.object({
+            policyMode: z.enum(["monitoring", "approval_required", "enforced"]),
+            approvalRequired: z.boolean(),
+            approverRole: z.string().min(2),
+            escalationTarget: z.string().min(2),
+          }),
           members: z.array(
             z.object({
               name: z.string().min(2),
@@ -91,6 +100,54 @@ export const appRouter = router({
         }),
       )
       .mutation(async ({ input }) => createAgentSwarm(input)),
+    updateSwarm: protectedProcedure
+      .input(
+        z.object({
+          id: z.number().int(),
+          name: z.string().min(2),
+          mission: z.string().min(12),
+          topology: z.enum(["mesh", "hub_spoke", "pipeline"]),
+          coordinationMode: z.enum(["consensus", "planner_executor", "supervisor"]),
+          team: z.string().min(2),
+          owner: z.string().min(2),
+          environment: z.enum(["production", "staging", "development"]),
+          governance: z.object({
+            policyMode: z.enum(["monitoring", "approval_required", "enforced"]),
+            approvalRequired: z.boolean(),
+            approverRole: z.string().min(2),
+            escalationTarget: z.string().min(2),
+          }),
+          members: z.array(
+            z.object({
+              name: z.string().min(2),
+              role: z.string().min(2),
+              description: z.string().min(10),
+              model: z.string().min(2),
+              tools: z.array(z.string().min(2)).min(1),
+            }),
+          ).min(2).max(8),
+        }),
+      )
+      .mutation(async ({ input }) => updateAgentSwarm(input)),
+    dissolveSwarm: protectedProcedure
+      .input(
+        z.object({
+          id: z.number().int(),
+          mode: z.enum(["retain_agents", "remove_agents"]),
+        }),
+      )
+      .mutation(async ({ input }) => dissolveAgentSwarm(input)),
+    postSwarmMessage: protectedProcedure
+      .input(
+        z.object({
+          swarmId: z.number().int(),
+          communicationLinkId: z.number().int(),
+          senderAgentId: z.number().int(),
+          content: z.string().min(8),
+          kind: z.enum(["directive", "status", "evidence", "approval"]),
+        }),
+      )
+      .mutation(async ({ input }) => postAgentSwarmMessage(input)),
     update: protectedProcedure
       .input(
         z.object({

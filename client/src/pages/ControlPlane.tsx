@@ -365,12 +365,21 @@ export function AgentsPage() {
     team: "Operations",
     owner: "",
     environment: "production" as "production" | "staging" | "development",
+    governance: {
+      policyMode: "approval_required" as "monitoring" | "approval_required" | "enforced",
+      approvalRequired: true,
+      approverRole: "operations_approver",
+      escalationTarget: "Head of Operations",
+    },
     members: [
       { ...createEmptySwarmMember(), role: "supervisor", model: "gpt-4.1" },
       createEmptySwarmMember(),
     ],
   });
   const [swarmForm, setSwarmForm] = useState(createDefaultSwarmForm);
+  const [editingSwarmId, setEditingSwarmId] = useState<number | null>(null);
+  const [swarmDissolveMode, setSwarmDissolveMode] = useState<"retain_agents" | "remove_agents">("retain_agents");
+  const [swarmMessageDrafts, setSwarmMessageDrafts] = useState<Record<number, string>>({});
   const normalizedForm = normalizeAgentFormInput(form);
   const trimmedDescription = normalizedForm.description;
   const isDescriptionTooShort = trimmedDescription.length > 0 && trimmedDescription.length < 10;
@@ -381,13 +390,22 @@ export function AgentsPage() {
     setEditingAgentId(null);
     setIsDuplicateMode(false);
   };
-  const resetSwarmForm = () => setSwarmForm(createDefaultSwarmForm());
+  const resetSwarmForm = () => {
+    setSwarmForm(createDefaultSwarmForm());
+    setEditingSwarmId(null);
+    setSwarmDissolveMode("retain_agents");
+  };
   const normalizedSwarm = {
     ...swarmForm,
     name: swarmForm.name.trim(),
     mission: swarmForm.mission.trim(),
     team: swarmForm.team.trim(),
     owner: swarmForm.owner.trim(),
+    governance: {
+      ...swarmForm.governance,
+      approverRole: swarmForm.governance.approverRole.trim(),
+      escalationTarget: swarmForm.governance.escalationTarget.trim(),
+    },
     members: swarmForm.members.map(member => ({
       name: member.name.trim(),
       role: member.role.trim(),
@@ -396,13 +414,16 @@ export function AgentsPage() {
       tools: member.tools.split(",").map(tool => tool.trim()).filter(Boolean),
     })),
   };
+  const isEditingSwarm = editingSwarmId !== null;
   const swarmValidationMessage = !normalizedSwarm.name || !normalizedSwarm.mission || !normalizedSwarm.owner
     ? "Bitte vervollständige Schwarmname, Mission und Owner."
     : normalizedSwarm.mission.length < 12
       ? "Die Mission des Schwarms muss mindestens 12 Zeichen enthalten."
-      : normalizedSwarm.members.some(member => !member.name || !member.role || !member.description || member.description.length < 10 || member.tools.length === 0)
-        ? "Jedes Schwarmmitglied benötigt Name, Rolle, Beschreibung und mindestens ein Tool."
-        : null;
+      : !normalizedSwarm.governance.approverRole || !normalizedSwarm.governance.escalationTarget
+        ? "Bitte vervollständige Approver-Rolle und Eskalationsziel für die Schwarm-Governance."
+        : normalizedSwarm.members.some(member => !member.name || !member.role || !member.description || member.description.length < 10 || member.tools.length === 0)
+          ? "Jedes Schwarmmitglied benötigt Name, Rolle, Beschreibung und mindestens ein Tool."
+          : null;
   const createMutation = trpc.agents.create.useMutation({
     onSuccess: async () => {
       toast.success("Agent erfolgreich registriert");
@@ -443,9 +464,67 @@ export function AgentsPage() {
       toast.error(error.message || "Agenten-Schwarm konnte nicht angelegt werden.");
     },
   });
+  const updateSwarmMutation = trpc.agents.updateSwarm.useMutation({
+    onSuccess: async result => {
+      toast.success(`Schwarm ${result.name} erfolgreich aktualisiert`);
+      resetSwarmForm();
+      await utils.controlPlane.snapshot.invalidate();
+    },
+    onError: error => {
+      toast.error(error.message || "Agenten-Schwarm konnte nicht aktualisiert werden.");
+    },
+  });
+  const dissolveSwarmMutation = trpc.agents.dissolveSwarm.useMutation({
+    onSuccess: async result => {
+      toast.success(result.mode === "remove_agents" ? "Schwarm und Mitglieder wurden aufgelöst" : "Schwarm wurde aufgelöst, Mitglieder bleiben erhalten");
+      resetSwarmForm();
+      await utils.controlPlane.snapshot.invalidate();
+    },
+    onError: error => {
+      toast.error(error.message || "Agenten-Schwarm konnte nicht aufgelöst werden.");
+    },
+  });
+  const postSwarmMessageMutation = trpc.agents.postSwarmMessage.useMutation({
+    onSuccess: async result => {
+      setSwarmMessageDrafts(current => ({ ...current, [result.id]: "" }));
+      toast.success("Nachricht im Kommunikationspfad protokolliert");
+      await utils.controlPlane.snapshot.invalidate();
+    },
+    onError: error => {
+      toast.error(error.message || "Nachricht konnte nicht protokolliert werden.");
+    },
+  });
 
   if (isLoading) return <LoadingState title="Agenten-Verwaltung" description="Einzelagenten und Agentenschwärme werden geladen." />;
   if (error || !data) return <ErrorState />;
+
+  const populateSwarmForm = (swarm: (typeof data.agentSwarms)[number]) => {
+    const members = data.agents
+      .filter(agent => swarm.memberAgentIds.includes(agent.id))
+      .map(agent => ({
+        name: agent.name,
+        role: agent.swarmRole ?? "specialist",
+        description: agent.description,
+        model: agent.model,
+        tools: agent.tools.join(", "),
+      }));
+
+    setSwarmForm({
+      name: swarm.name,
+      mission: swarm.mission,
+      topology: swarm.topology,
+      coordinationMode: swarm.coordinationMode,
+      team: swarm.team,
+      owner: swarm.owner,
+      environment: swarm.environment as "production" | "staging" | "development",
+      governance: { ...swarm.governance },
+      members: members.length >= 2 ? members : [
+        { ...createEmptySwarmMember(), role: "supervisor", model: "gpt-4.1" },
+        createEmptySwarmMember(),
+      ],
+    });
+    setEditingSwarmId(swarm.id);
+  };
 
   return (
     <div className="space-y-6">
@@ -455,6 +534,18 @@ export function AgentsPage() {
         description="Registriere einzelne Agenten, lege koordinierte Agenten-Schwärme an und verfolge Rollen sowie Kommunikationspfade zentral in einer Oberfläche."
         actions={<ModuleBadge label={`${data.agents.length} registriert · ${data.agentSwarms.length} Schwärme`} />}
       />
+
+      <Surface className="border-emerald-200/70 bg-emerald-50/80 p-5 shadow-[0_18px_50px_-32px_rgba(16,185,129,0.45)]">
+        <div className="flex flex-wrap items-center gap-3">
+          <ModuleBadge label="Schwarm-Kommunikation aktiv" tone="success" />
+          <ModuleBadge label="Nachrichtenhistorie sichtbar" tone="neutral" />
+          <ModuleBadge label="Composer je Kommunikationspfad" tone="warning" />
+        </div>
+        <p className="mt-3 text-sm leading-6 text-slate-700">
+          Diese Route zeigt einen vollständigen Schwarm-Arbeitsbereich mit <strong>bearbeitbaren Agentenschwärmen</strong>,
+          <strong>sichtbarer Nachrichtenhistorie pro Kommunikationspfad</strong> und einem <strong>Composer für neue Schwarm-Nachrichten</strong>.
+        </p>
+      </Surface>
 
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <Surface className="p-6">
@@ -471,22 +562,72 @@ export function AgentsPage() {
                     </div>
                     <ModuleBadge label={`${swarm.topology} · ${swarm.coordinationMode}`} tone="neutral" />
                   </div>
-                  <div className="mt-4 grid gap-2 text-sm text-slate-600">
-                    <div className="flex justify-between"><span>Mitglieder</span><span className="font-medium text-slate-950">{members.length}</span></div>
-                    <div className="flex justify-between"><span>Owner</span><span className="font-medium text-slate-950">{swarm.owner}</span></div>
-                    <div className="flex justify-between"><span>Umgebung</span><span className="font-medium text-slate-950">{swarm.environment}</span></div>
-                  </div>
+                    <div className="mt-4 grid gap-2 text-sm text-slate-600">
+                      <div className="flex justify-between"><span>Mitglieder</span><span className="font-medium text-slate-950">{members.length}</span></div>
+                      <div className="flex justify-between"><span>Owner</span><span className="font-medium text-slate-950">{swarm.owner}</span></div>
+                      <div className="flex justify-between"><span>Umgebung</span><span className="font-medium text-slate-950">{swarm.environment}</span></div>
+                      <div className="flex justify-between"><span>Policy-Modus</span><span className="font-medium text-slate-950">{swarm.governance.policyMode}</span></div>
+                      <div className="flex justify-between"><span>Approver-Rolle</span><span className="font-medium text-slate-950">{swarm.governance.approverRole}</span></div>
+                    </div>
+
                   <div className="mt-4 flex flex-wrap gap-2">
                     {members.map(member => <ModuleBadge key={member.id} label={`${member.name} · ${member.swarmRole ?? "member"}`} />)}
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                      onClick={() => populateSwarmForm(swarm)}
+                    >
+                      Schwarm bearbeiten
+                    </button>
                   </div>
                   <div className="mt-4 rounded-2xl border border-white/70 bg-white/90 p-4">
                     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Kommunikationspfade</p>
                     <div className="mt-3 grid gap-2 text-sm text-slate-600">
-                      {swarm.communicationLinks.slice(0, 3).map(link => (
+                      {swarm.communicationLinks.map(link => (
                         <div key={link.id} className="rounded-2xl border border-slate-200/80 bg-slate-50 px-3 py-3">
                           <p className="font-medium text-slate-950">{link.fromAgentName} → {link.toAgentName}</p>
                           <p className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">{link.channel} · {link.protocol}</p>
                           <p className="mt-2 text-sm leading-6 text-slate-600">{link.purpose}</p>
+                          <div className="mt-3 space-y-2 rounded-2xl border border-white/80 bg-white/90 p-3">
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Nachrichtenverlauf</p>
+                            {link.history.slice(-3).map(message => (
+                              <div key={message.id} className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2">
+                                <div className="flex items-center justify-between gap-2 text-[11px] uppercase tracking-[0.18em] text-slate-400">
+                                  <span>{message.senderAgentName} · {message.kind}</span>
+                                  <span>{timeAgo(message.createdAt)}</span>
+                                </div>
+                                <p className="mt-2 text-sm leading-6 text-slate-600">{message.content}</p>
+                              </div>
+                            ))}
+                            <textarea
+                              className="min-h-[84px] w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-950 outline-none placeholder:text-slate-400"
+                              placeholder={`Nachricht von ${link.fromAgentName} an ${link.toAgentName}`}
+                              value={swarmMessageDrafts[link.id] ?? ""}
+                              onChange={event => setSwarmMessageDrafts(current => ({ ...current, [link.id]: event.target.value }))}
+                            />
+                            <Button
+                              className="h-10 w-full rounded-2xl bg-slate-950 text-white hover:bg-slate-900"
+                              disabled={postSwarmMessageMutation.isPending}
+                              onClick={() => {
+                                const content = (swarmMessageDrafts[link.id] ?? "").trim();
+                                if (content.length < 8) {
+                                  toast.error("Bitte gib mindestens 8 Zeichen für den Nachrichtenverlauf ein.");
+                                  return;
+                                }
+                                postSwarmMessageMutation.mutate({
+                                  swarmId: swarm.id,
+                                  communicationLinkId: link.id,
+                                  senderAgentId: link.fromAgentId,
+                                  content,
+                                  kind: link.channel.includes("approval") ? "approval" : link.channel.includes("brief") ? "evidence" : "status",
+                                });
+                              }}
+                            >
+                              {postSwarmMessageMutation.isPending ? "Nachricht wird protokolliert …" : "Nachricht protokollieren"}
+                            </Button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -642,8 +783,8 @@ export function AgentsPage() {
           <Surface className="p-6">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-sm font-semibold text-slate-950">Agenten-Schwarm anlegen</p>
-                <p className="mt-1 text-sm leading-6 text-slate-500">Erstelle mehrere spezialisierte Agenten in einem Schritt und definiere, wie sie untereinander kommunizieren und orchestriert werden.</p>
+                <p className="text-sm font-semibold text-slate-950">{isEditingSwarm ? "Agenten-Schwarm bearbeiten" : "Agenten-Schwarm anlegen"}</p>
+                <p className="mt-1 text-sm leading-6 text-slate-500">{isEditingSwarm ? "Aktualisiere Mission, Mitglieder und Topologie eines bestehenden Schwarms oder löse ihn kontrolliert auf." : "Erstelle mehrere spezialisierte Agenten in einem Schritt und definiere, wie sie untereinander kommunizieren und orchestriert werden."}</p>
               </div>
               <ModuleBadge label={`${swarmForm.members.length} Mitglieder`} tone="neutral" />
             </div>
@@ -663,6 +804,13 @@ export function AgentsPage() {
                   <option value="planner_executor">planner_executor</option>
                   <option value="consensus">consensus</option>
                 </select>
+                <select className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none" value={swarmForm.governance.policyMode} onChange={e => setSwarmForm(current => ({ ...current, governance: { ...current.governance, policyMode: e.target.value as "monitoring" | "approval_required" | "enforced" } }))}>
+                  <option value="monitoring">monitoring</option>
+                  <option value="approval_required">approval_required</option>
+                  <option value="enforced">enforced</option>
+                </select>
+                <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none placeholder:text-slate-400" placeholder="Approver-Rolle" value={swarmForm.governance.approverRole} onChange={e => setSwarmForm(current => ({ ...current, governance: { ...current.governance, approverRole: e.target.value } }))} />
+                <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none placeholder:text-slate-400 md:col-span-2" placeholder="Eskalationsziel" value={swarmForm.governance.escalationTarget} onChange={e => setSwarmForm(current => ({ ...current, governance: { ...current.governance, escalationTarget: e.target.value } }))} />
               </div>
               <div className="space-y-3">
                 {swarmForm.members.map((member, index) => (
@@ -683,23 +831,66 @@ export function AgentsPage() {
                   </div>
                 ))}
               </div>
+              {isEditingSwarm ? (
+                <div className="rounded-[24px] border border-amber-200 bg-amber-50/70 p-4">
+                  <p className="text-sm font-semibold text-slate-950">Kontrollierte Auflösung</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">Wähle, ob die Mitglieder als Einzelagenten bestehen bleiben oder gemeinsam mit dem Schwarm entfernt werden.</p>
+                  <div className="mt-3 flex flex-col gap-3 sm:flex-row">
+                    <select className="h-11 rounded-2xl border border-amber-200 bg-white px-4 text-sm text-slate-950 outline-none" value={swarmDissolveMode} onChange={e => setSwarmDissolveMode(e.target.value as "retain_agents" | "remove_agents")}>
+                      <option value="retain_agents">Mitglieder behalten</option>
+                      <option value="remove_agents">Mitglieder mit entfernen</option>
+                    </select>
+                    <Button
+                      className="h-11 rounded-2xl border border-rose-200 bg-white px-5 text-rose-700 hover:bg-rose-50"
+                      disabled={dissolveSwarmMutation.isPending || updateSwarmMutation.isPending || createSwarmMutation.isPending}
+                      onClick={() => {
+                        if (editingSwarmId === null) return;
+                        dissolveSwarmMutation.mutate({ id: editingSwarmId, mode: swarmDissolveMode });
+                      }}
+                    >
+                      {dissolveSwarmMutation.isPending ? "Auflösung läuft …" : "Schwarm auflösen"}
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
               <div className="flex flex-col gap-3 sm:flex-row">
                 <Button className="h-11 rounded-2xl border border-slate-200 bg-white px-5 text-slate-700 hover:bg-slate-50" onClick={() => setSwarmForm(current => ({ ...current, members: [...current.members, createEmptySwarmMember()] }))}>
                   Mitglied hinzufügen
                 </Button>
                 <Button
                   className="h-11 flex-1 rounded-2xl bg-slate-950 text-white hover:bg-slate-900"
-                  disabled={createSwarmMutation.isPending || createMutation.isPending || duplicateMutation.isPending || updateMutation.isPending}
+                  disabled={createSwarmMutation.isPending || updateSwarmMutation.isPending || dissolveSwarmMutation.isPending || createMutation.isPending || duplicateMutation.isPending || updateMutation.isPending}
                   onClick={() => {
                     if (swarmValidationMessage) {
                       toast.error(swarmValidationMessage);
                       return;
                     }
+
+                    if (isEditingSwarm && editingSwarmId !== null) {
+                      updateSwarmMutation.mutate({ id: editingSwarmId, ...normalizedSwarm });
+                      return;
+                    }
+
                     createSwarmMutation.mutate(normalizedSwarm);
                   }}
                 >
-                  {createSwarmMutation.isPending ? "Schwarm wird angelegt …" : "Agenten-Schwarm anlegen"}
+                  {updateSwarmMutation.isPending
+                    ? "Schwarm wird aktualisiert …"
+                    : createSwarmMutation.isPending
+                      ? "Schwarm wird angelegt …"
+                      : isEditingSwarm
+                        ? "Schwarm speichern"
+                        : "Agenten-Schwarm anlegen"}
                 </Button>
+                {isEditingSwarm ? (
+                  <Button
+                    className="h-11 rounded-2xl border border-slate-200 bg-white px-5 text-slate-700 hover:bg-slate-50"
+                    disabled={createSwarmMutation.isPending || updateSwarmMutation.isPending || dissolveSwarmMutation.isPending}
+                    onClick={resetSwarmForm}
+                  >
+                    Abbrechen
+                  </Button>
+                ) : null}
               </div>
             </div>
           </Surface>
