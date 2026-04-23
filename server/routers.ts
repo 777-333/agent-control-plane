@@ -6,6 +6,7 @@ import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import {
   applyApprovalChainToApproval,
   createAgent,
+  createAgentSwarm,
   duplicateAgent,
   updateAgent,
   createApprovalChainTemplate,
@@ -68,6 +69,28 @@ export const appRouter = router({
         }),
       )
       .mutation(async ({ input }) => createAgent(input)),
+    createSwarm: protectedProcedure
+      .input(
+        z.object({
+          name: z.string().min(2),
+          mission: z.string().min(12),
+          topology: z.enum(["mesh", "hub_spoke", "pipeline"]),
+          coordinationMode: z.enum(["consensus", "planner_executor", "supervisor"]),
+          team: z.string().min(2),
+          owner: z.string().min(2),
+          environment: z.enum(["production", "staging", "development"]),
+          members: z.array(
+            z.object({
+              name: z.string().min(2),
+              role: z.string().min(2),
+              description: z.string().min(10),
+              model: z.string().min(2),
+              tools: z.array(z.string().min(2)).min(1),
+            }),
+          ).min(2).max(8),
+        }),
+      )
+      .mutation(async ({ input }) => createAgentSwarm(input)),
     update: protectedProcedure
       .input(
         z.object({

@@ -119,6 +119,40 @@ type AgentRecord = {
   tokenUsage: number;
   successRate: number;
   tools: string[];
+  swarmId?: number | null;
+  swarmName?: string | null;
+  swarmRole?: string | null;
+  communicationMode?: string | null;
+};
+
+type AgentSwarmTopology = "mesh" | "hub_spoke" | "pipeline";
+type AgentSwarmCoordinationMode = "consensus" | "planner_executor" | "supervisor";
+
+type AgentSwarmCommunicationRecord = {
+  id: number;
+  fromAgentId: number;
+  fromAgentName: string;
+  toAgentId: number;
+  toAgentName: string;
+  channel: string;
+  protocol: string;
+  purpose: string;
+  lastMessageAt: number;
+  status: "active" | "idle" | "degraded";
+};
+
+type AgentSwarmRecord = {
+  id: number;
+  name: string;
+  mission: string;
+  topology: AgentSwarmTopology;
+  coordinationMode: AgentSwarmCoordinationMode;
+  team: string;
+  owner: string;
+  environment: string;
+  createdAt: number;
+  memberAgentIds: number[];
+  communicationLinks: AgentSwarmCommunicationRecord[];
 };
 
 type PolicyRecord = {
@@ -309,6 +343,8 @@ type PermissionRecord = {
 
 const now = Date.now();
 let nextAgentId = 4;
+let nextSwarmId = 2;
+let nextSwarmCommunicationId = 100;
 let nextPolicyId = 4;
 let nextTeamId = 4;
 let nextPermissionId = 5;
@@ -333,46 +369,112 @@ const agentsData: AgentRecord[] = [
     lastHeartbeat: now - 1000 * 60 * 2,
     monthlyCostUsd: 4820,
     tokenUsage: 1840000,
-    successRate: 99.1,
-    tools: ["ERP", "E-Mail", "Datenbank"],
+    successRate: 98.8,
+    tools: ["ERP", "Browser", "Data API"],
+    swarmId: 1,
+    swarmName: "Incident Resolution Swarm",
+    swarmRole: "supervisor",
+    communicationMode: "supervisor",
   },
   {
     id: 2,
     name: "Support Orchestrator",
-    description: "Klassifiziert Support-Fälle, formuliert Antworten und steuert Eskalationen in CRM- und Mail-Flows.",
+    description: "Koordiniert CRM-, E-Mail- und Browser-Schritte für eskalierte Supportfälle.",
     status: "warning",
     riskLevel: "high",
     team: "Customer Success",
     owner: "Mara Vogt",
-    model: "claude-3.7-sonnet",
-    environment: "production",
-    policyMode: "enforced",
-    lastHeartbeat: now - 1000 * 60 * 11,
+    model: "gpt-4.1-mini",
+    environment: "staging",
+    policyMode: "approval-aware",
+    lastHeartbeat: now - 1000 * 60 * 7,
     monthlyCostUsd: 3150,
     tokenUsage: 1290000,
-    successRate: 96.4,
+    successRate: 94.1,
     tools: ["CRM", "E-Mail", "Browser"],
+    swarmId: 1,
+    swarmName: "Incident Resolution Swarm",
+    swarmRole: "coordinator",
+    communicationMode: "supervisor",
   },
   {
     id: 3,
     name: "Research Navigator",
-    description: "Erstellt strukturierte Recherchen, sammelt Nachweise und nutzt Browser- sowie Wissens-Connectoren.",
+    description: "Verdichtet externe Signale und bereitet Briefings mit Quellenverweisen für Analysten vor.",
     status: "healthy",
     riskLevel: "medium",
-    team: "Strategy Office",
-    owner: "David Brandt",
-    model: "gemini-2.5-pro",
-    environment: "staging",
+    team: "Strategy",
+    owner: "Jonas Ritter",
+    model: "gpt-4.1",
+    environment: "development",
     policyMode: "monitoring",
-    lastHeartbeat: now - 1000 * 60 * 4,
+    lastHeartbeat: now - 1000 * 60 * 1,
     monthlyCostUsd: 1240,
     tokenUsage: 610000,
-    successRate: 98.2,
-    tools: ["Browser", "Datenbank"],
+    successRate: 99.2,
+    tools: ["Browser", "Knowledge Base", "Slides"],
+    swarmId: 1,
+    swarmName: "Incident Resolution Swarm",
+    swarmRole: "analyst",
+    communicationMode: "supervisor",
+  },
+];
+
+const agentSwarmsData: AgentSwarmRecord[] = [
+  {
+    id: 1,
+    name: "Incident Resolution Swarm",
+    mission: "Koordiniert Analyse, Kundenkommunikation und Freigabevorbereitung für kritische Vorfälle über mehrere Agentenrollen hinweg.",
+    topology: "hub_spoke",
+    coordinationMode: "supervisor",
+    team: "Cross-Functional Operations",
+    owner: "Ops Console",
+    environment: "production",
+    createdAt: now - 1000 * 60 * 90,
+    memberAgentIds: [1, 2, 3],
+    communicationLinks: [
+      {
+        id: 1,
+        fromAgentId: 2,
+        fromAgentName: "Support Orchestrator",
+        toAgentId: 1,
+        toAgentName: "Finance Sentinel",
+        channel: "approval-context",
+        protocol: "structured handoff",
+        purpose: "Leitet eskalierte Fallakten an den Governance-Agenten zur Risiko- und Freigabeprüfung weiter.",
+        lastMessageAt: now - 1000 * 60 * 8,
+        status: "active",
+      },
+      {
+        id: 2,
+        fromAgentId: 3,
+        fromAgentName: "Research Navigator",
+        toAgentId: 2,
+        toAgentName: "Support Orchestrator",
+        channel: "briefing-sync",
+        protocol: "evidence digest",
+        purpose: "Liefert Quellen- und Kontextbriefings für die operative Kundenkommunikation.",
+        lastMessageAt: now - 1000 * 60 * 11,
+        status: "active",
+      },
+      {
+        id: 3,
+        fromAgentId: 1,
+        fromAgentName: "Finance Sentinel",
+        toAgentId: 2,
+        toAgentName: "Support Orchestrator",
+        channel: "decision-feedback",
+        protocol: "policy verdict",
+        purpose: "Gibt Freigabeergebnisse und Guardrail-Hinweise an den koordinierenden Agenten zurück.",
+        lastMessageAt: now - 1000 * 60 * 4,
+        status: "active",
+      },
+    ],
   },
 ];
 
 const policiesData: PolicyRecord[] = [
+
   {
     id: 1,
     name: "High-value payouts require approval",
@@ -1137,6 +1239,87 @@ type AgentMutationInput = {
   environment: string;
 };
 
+type AgentSwarmMemberInput = {
+  name: string;
+  role: string;
+  description: string;
+  model: string;
+  tools: string[];
+};
+
+type AgentSwarmMutationInput = {
+  name: string;
+  mission: string;
+  topology: AgentSwarmTopology;
+  coordinationMode: AgentSwarmCoordinationMode;
+  team: string;
+  owner: string;
+  environment: string;
+  members: AgentSwarmMemberInput[];
+};
+
+function buildSwarmCommunicationLinks(swarmId: number, members: AgentRecord[], topology: AgentSwarmTopology) {
+  const pairs: Array<{ from: AgentRecord; to: AgentRecord; channel: string; protocol: string; purpose: string }> = [];
+
+  if (topology === "pipeline") {
+    members.slice(0, -1).forEach((member, index) => {
+      pairs.push({
+        from: member,
+        to: members[index + 1],
+        channel: "pipeline-handoff",
+        protocol: "stage handoff",
+        purpose: `${member.name} übergibt strukturierte Arbeitspakete an ${members[index + 1].name}.`,
+      });
+    });
+  } else if (topology === "hub_spoke") {
+    const coordinator = members[0];
+    members.slice(1).forEach(member => {
+      pairs.push({
+        from: coordinator,
+        to: member,
+        channel: "coordination-brief",
+        protocol: "supervisor tasking",
+        purpose: `${coordinator.name} verteilt Teilaufgaben an ${member.name}.`,
+      });
+      pairs.push({
+        from: member,
+        to: coordinator,
+        channel: "result-return",
+        protocol: "status callback",
+        purpose: `${member.name} meldet Ergebnisse und Risiken an ${coordinator.name} zurück.`,
+      });
+    });
+  } else {
+    members.forEach((from, fromIndex) => {
+      members.forEach((to, toIndex) => {
+        if (fromIndex < toIndex) {
+          pairs.push({
+            from,
+            to,
+            channel: "peer-sync",
+            protocol: "mesh exchange",
+            purpose: `${from.name} und ${to.name} tauschen Zwischenstände für gemeinsame Entscheidungen aus.`,
+          });
+        }
+      });
+    });
+  }
+
+  return pairs.map(pair => ({
+    id: nextSwarmCommunicationId++,
+    fromAgentId: pair.from.id,
+    fromAgentName: pair.from.name,
+    toAgentId: pair.to.id,
+    toAgentName: pair.to.name,
+    channel: pair.channel,
+    protocol: pair.protocol,
+    purpose: pair.purpose,
+    lastMessageAt: Date.now(),
+    status: "active" as const,
+    swarmId,
+  })).map(({ swarmId: _swarmId, ...link }) => link);
+}
+
 export async function createAgent(input: AgentMutationInput) {
   const newAgent: AgentRecord = {
     id: nextAgentId++,
@@ -1202,6 +1385,68 @@ export async function duplicateAgent(input: AgentMutationInput & { sourceAgentId
 
   agentsData.unshift(duplicatedAgent);
   return duplicatedAgent;
+}
+
+export async function listAgentSwarms() {
+  return [...agentSwarmsData]
+    .map(swarm => ({
+      ...swarm,
+      memberAgentIds: [...swarm.memberAgentIds],
+      communicationLinks: [...swarm.communicationLinks].sort((a, b) => b.lastMessageAt - a.lastMessageAt),
+    }))
+    .sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export async function createAgentSwarm(input: AgentSwarmMutationInput) {
+  if (input.members.length < 2) {
+    throw new Error("Ein Agenten-Schwarm benötigt mindestens zwei Mitglieder.");
+  }
+
+  const swarmId = nextSwarmId++;
+  const createdAt = Date.now();
+  const swarmMembers: AgentRecord[] = input.members.map((member, index) => ({
+    id: nextAgentId++,
+    name: member.name,
+    description: member.description,
+    status: "healthy",
+    riskLevel: index === 0 ? "high" : "medium",
+    team: input.team,
+    owner: input.owner,
+    model: member.model,
+    environment: input.environment,
+    policyMode: input.coordinationMode === "supervisor" ? "approval-aware" : "monitoring",
+    lastHeartbeat: createdAt,
+    monthlyCostUsd: 0,
+    tokenUsage: 0,
+    successRate: 100,
+    tools: member.tools,
+    swarmId,
+    swarmName: input.name,
+    swarmRole: member.role,
+    communicationMode: input.coordinationMode,
+  }));
+
+  const communicationLinks = buildSwarmCommunicationLinks(swarmId, swarmMembers, input.topology);
+  const swarm: AgentSwarmRecord = {
+    id: swarmId,
+    name: input.name,
+    mission: input.mission,
+    topology: input.topology,
+    coordinationMode: input.coordinationMode,
+    team: input.team,
+    owner: input.owner,
+    environment: input.environment,
+    createdAt,
+    memberAgentIds: swarmMembers.map(member => member.id),
+    communicationLinks,
+  };
+
+  agentsData.unshift(...swarmMembers.slice().reverse());
+  agentSwarmsData.unshift(swarm);
+  return {
+    ...swarm,
+    members: swarmMembers,
+  };
 }
 
 export async function listPolicies() {
@@ -1895,6 +2140,7 @@ export async function getControlPlaneSnapshot() {
   return {
     dashboard: await getDashboardOverview(),
     agents: await listAgents(),
+    agentSwarms: await listAgentSwarms(),
     policies: await listPolicies(),
     approvalChains: await listApprovalChains(),
     approvals: await listApprovals(),

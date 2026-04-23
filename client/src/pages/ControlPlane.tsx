@@ -350,6 +350,27 @@ export function AgentsPage() {
   const [form, setForm] = useCreateAgentForm();
   const [editingAgentId, setEditingAgentId] = useState<number | null>(null);
   const [isDuplicateMode, setIsDuplicateMode] = useState(false);
+  const createEmptySwarmMember = () => ({
+    name: "",
+    role: "specialist",
+    description: "",
+    model: "gpt-4.1-mini",
+    tools: "Browser, Knowledge Base",
+  });
+  const createDefaultSwarmForm = () => ({
+    name: "",
+    mission: "",
+    topology: "hub_spoke" as "mesh" | "hub_spoke" | "pipeline",
+    coordinationMode: "supervisor" as "consensus" | "planner_executor" | "supervisor",
+    team: "Operations",
+    owner: "",
+    environment: "production" as "production" | "staging" | "development",
+    members: [
+      { ...createEmptySwarmMember(), role: "supervisor", model: "gpt-4.1" },
+      createEmptySwarmMember(),
+    ],
+  });
+  const [swarmForm, setSwarmForm] = useState(createDefaultSwarmForm);
   const normalizedForm = normalizeAgentFormInput(form);
   const trimmedDescription = normalizedForm.description;
   const isDescriptionTooShort = trimmedDescription.length > 0 && trimmedDescription.length < 10;
@@ -360,6 +381,28 @@ export function AgentsPage() {
     setEditingAgentId(null);
     setIsDuplicateMode(false);
   };
+  const resetSwarmForm = () => setSwarmForm(createDefaultSwarmForm());
+  const normalizedSwarm = {
+    ...swarmForm,
+    name: swarmForm.name.trim(),
+    mission: swarmForm.mission.trim(),
+    team: swarmForm.team.trim(),
+    owner: swarmForm.owner.trim(),
+    members: swarmForm.members.map(member => ({
+      name: member.name.trim(),
+      role: member.role.trim(),
+      description: member.description.trim(),
+      model: member.model.trim(),
+      tools: member.tools.split(",").map(tool => tool.trim()).filter(Boolean),
+    })),
+  };
+  const swarmValidationMessage = !normalizedSwarm.name || !normalizedSwarm.mission || !normalizedSwarm.owner
+    ? "Bitte vervollständige Schwarmname, Mission und Owner."
+    : normalizedSwarm.mission.length < 12
+      ? "Die Mission des Schwarms muss mindestens 12 Zeichen enthalten."
+      : normalizedSwarm.members.some(member => !member.name || !member.role || !member.description || member.description.length < 10 || member.tools.length === 0)
+        ? "Jedes Schwarmmitglied benötigt Name, Rolle, Beschreibung und mindestens ein Tool."
+        : null;
   const createMutation = trpc.agents.create.useMutation({
     onSuccess: async () => {
       toast.success("Agent erfolgreich registriert");
@@ -390,8 +433,18 @@ export function AgentsPage() {
       toast.error(error.message || "Agent konnte nicht aktualisiert werden. Bitte prüfe die Eingaben erneut.");
     },
   });
+  const createSwarmMutation = trpc.agents.createSwarm.useMutation({
+    onSuccess: async result => {
+      toast.success(`Schwarm ${result.name} mit ${result.members.length} Agenten angelegt`);
+      resetSwarmForm();
+      await utils.controlPlane.snapshot.invalidate();
+    },
+    onError: error => {
+      toast.error(error.message || "Agenten-Schwarm konnte nicht angelegt werden.");
+    },
+  });
 
-  if (isLoading) return <LoadingState />;
+  if (isLoading) return <LoadingState title="Agenten-Verwaltung" description="Einzelagenten und Agentenschwärme werden geladen." />;
   if (error || !data) return <ErrorState />;
 
   return (
@@ -399,13 +452,49 @@ export function AgentsPage() {
       <SectionHeader
         eyebrow="Operations"
         title="Agenten-Verwaltung"
-        description="Registriere Agenten, bearbeite bestehende Konfigurationen und dupliziere bewährte Setups für neue Instanzen in Echtzeit."
-        actions={<ModuleBadge label={`${data.agents.length} registriert`} />}
+        description="Registriere einzelne Agenten, lege koordinierte Agenten-Schwärme an und verfolge Rollen sowie Kommunikationspfade zentral in einer Oberfläche."
+        actions={<ModuleBadge label={`${data.agents.length} registriert · ${data.agentSwarms.length} Schwärme`} />}
       />
 
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <Surface className="p-6">
-          <p className="text-sm font-semibold text-slate-950">Aktive Agentenflotte</p>
+          <p className="text-sm font-semibold text-slate-950">Agentenschwärme und Flotte</p>
+          <div className="mt-5 grid gap-4 md:grid-cols-2">
+            {data.agentSwarms.map(swarm => {
+              const members = data.agents.filter(agent => swarm.memberAgentIds.includes(agent.id));
+              return (
+                <div key={swarm.id} className="rounded-[24px] border border-indigo-200/70 bg-indigo-50/70 px-5 py-5 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-950">{swarm.name}</p>
+                      <p className="mt-2 text-sm leading-6 text-slate-600">{swarm.mission}</p>
+                    </div>
+                    <ModuleBadge label={`${swarm.topology} · ${swarm.coordinationMode}`} tone="neutral" />
+                  </div>
+                  <div className="mt-4 grid gap-2 text-sm text-slate-600">
+                    <div className="flex justify-between"><span>Mitglieder</span><span className="font-medium text-slate-950">{members.length}</span></div>
+                    <div className="flex justify-between"><span>Owner</span><span className="font-medium text-slate-950">{swarm.owner}</span></div>
+                    <div className="flex justify-between"><span>Umgebung</span><span className="font-medium text-slate-950">{swarm.environment}</span></div>
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {members.map(member => <ModuleBadge key={member.id} label={`${member.name} · ${member.swarmRole ?? "member"}`} />)}
+                  </div>
+                  <div className="mt-4 rounded-2xl border border-white/70 bg-white/90 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Kommunikationspfade</p>
+                    <div className="mt-3 grid gap-2 text-sm text-slate-600">
+                      {swarm.communicationLinks.slice(0, 3).map(link => (
+                        <div key={link.id} className="rounded-2xl border border-slate-200/80 bg-slate-50 px-3 py-3">
+                          <p className="font-medium text-slate-950">{link.fromAgentName} → {link.toAgentName}</p>
+                          <p className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">{link.channel} · {link.protocol}</p>
+                          <p className="mt-2 text-sm leading-6 text-slate-600">{link.purpose}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
           <div className="mt-5 grid gap-4">
             {data.agents.map(agent => (
               <div key={agent.id} className="rounded-[24px] border border-slate-200/80 bg-white px-5 py-5 shadow-sm">
@@ -418,6 +507,8 @@ export function AgentsPage() {
                     <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">{agent.description}</p>
                     <div className="mt-4 flex flex-wrap gap-2">
                       {agent.tools.map(tool => <ModuleBadge key={tool} label={tool} />)}
+                      {agent.swarmName ? <ModuleBadge label={`Schwarm: ${agent.swarmName}`} tone="neutral" /> : null}
+                      {agent.swarmRole ? <ModuleBadge label={`Rolle: ${agent.swarmRole}`} tone="warning" /> : null}
                     </div>
                     <div className="mt-4 flex flex-wrap gap-2">
                       <button
@@ -457,95 +548,162 @@ export function AgentsPage() {
           </div>
         </Surface>
 
-        <Surface className="p-6">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-sm font-semibold text-slate-950">
-                {isEditing ? "Agent bearbeiten" : isDuplicating ? "Agent duplizieren" : "Neuen Agenten registrieren"}
-              </p>
-              <p className="mt-1 text-sm leading-6 text-slate-500">
-                {isEditing
-                  ? "Passe Name, Verantwortliche und Modellparameter eines bestehenden Agents an und speichere die Änderungen direkt zurück in die Flotte."
-                  : isDuplicating
-                    ? "Übernimm ein bestehendes Agenten-Setup als Vorlage, passe Details an und speichere daraus eine neue Instanz."
-                    : "Lege eine neue Instanz für das Dashboard an und verknüpfe sie später mit Policies, Tool-Zugriffen und Guardrails."}
-              </p>
+        <div className="space-y-6">
+          <Surface className="p-6">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-slate-950">
+                  {isEditing ? "Agent bearbeiten" : isDuplicating ? "Agent duplizieren" : "Neuen Agenten registrieren"}
+                </p>
+                <p className="mt-1 text-sm leading-6 text-slate-500">
+                  {isEditing
+                    ? "Passe Name, Verantwortliche und Modellparameter eines bestehenden Agents an und speichere die Änderungen direkt zurück in die Flotte."
+                    : isDuplicating
+                      ? "Übernimm ein bestehendes Agenten-Setup als Vorlage, passe Details an und speichere daraus eine neue Instanz."
+                      : "Lege eine neue Instanz für das Dashboard an und verknüpfe sie später mit Policies, Tool-Zugriffen und Guardrails."}
+                </p>
+              </div>
+              {(isEditing || isDuplicating) && <ModuleBadge label={isEditing ? "Edit-Modus" : "Duplikat-Modus"} />}
             </div>
-            {(isEditing || isDuplicating) && <ModuleBadge label={isEditing ? "Edit-Modus" : "Duplikat-Modus"} />}
-          </div>
-          <div className="mt-5 space-y-4">
-            <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none ring-0 placeholder:text-slate-400" placeholder="Agentenname" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
-            <div className="space-y-2">
-              <textarea className="min-h-[108px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-950 outline-none placeholder:text-slate-400" placeholder="Beschreibung" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
-              <div className="flex items-center justify-between text-xs">
-                <span className={isDescriptionTooShort ? "text-amber-600" : "text-slate-400"}>
-                  Mindestens 10 Zeichen, damit die Servervalidierung erfüllt ist.
-                </span>
-                <span className={trimmedDescription.length >= 10 ? "text-emerald-600" : "text-slate-400"}>
-                  {trimmedDescription.length}/10
-                </span>
+            <div className="mt-5 space-y-4">
+              <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none ring-0 placeholder:text-slate-400" placeholder="Agentenname" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
+              <div className="space-y-2">
+                <textarea className="min-h-[108px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-950 outline-none placeholder:text-slate-400" placeholder="Beschreibung" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
+                <div className="flex items-center justify-between text-xs">
+                  <span className={isDescriptionTooShort ? "text-amber-600" : "text-slate-400"}>
+                    Mindestens 10 Zeichen, damit die Servervalidierung erfüllt ist.
+                  </span>
+                  <span className={trimmedDescription.length >= 10 ? "text-emerald-600" : "text-slate-400"}>
+                    {trimmedDescription.length}/10
+                  </span>
+                </div>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none placeholder:text-slate-400" placeholder="Team" value={form.team} onChange={e => setForm({ ...form, team: e.target.value })} />
+                <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none placeholder:text-slate-400" placeholder="Owner" value={form.owner} onChange={e => setForm({ ...form, owner: e.target.value })} />
+                <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none placeholder:text-slate-400" placeholder="Modell" value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} />
+                <select className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none" value={form.environment} onChange={e => setForm({ ...form, environment: e.target.value as "production" | "staging" | "development" })}>
+                  <option value="production">production</option>
+                  <option value="staging">staging</option>
+                  <option value="development">development</option>
+                </select>
+              </div>
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <Button
+                  className="h-11 flex-1 rounded-2xl bg-slate-950 text-white hover:bg-slate-900"
+                  disabled={createMutation.isPending || duplicateMutation.isPending || updateMutation.isPending || createSwarmMutation.isPending}
+                  onClick={() => {
+                    const payload = normalizeAgentFormInput(form);
+                    const validationMessage = getAgentFormValidationMessage(payload);
+
+                    if (validationMessage) {
+                      toast.error(validationMessage);
+                      return;
+                    }
+
+                    if (isEditing && editingAgentId !== null) {
+                      updateMutation.mutate({ id: editingAgentId, ...payload });
+                      return;
+                    }
+
+                    if (isDuplicating && editingAgentId !== null) {
+                      duplicateMutation.mutate({ sourceAgentId: editingAgentId, ...payload });
+                      return;
+                    }
+
+                    createMutation.mutate(payload);
+                  }}
+                >
+                  {updateMutation.isPending
+                    ? "Änderungen werden gespeichert …"
+                    : duplicateMutation.isPending
+                      ? "Duplikat wird gespeichert …"
+                      : createMutation.isPending
+                        ? "Registrierung läuft …"
+                        : isEditing
+                          ? "Änderungen speichern"
+                          : isDuplicating
+                            ? "Duplikat speichern"
+                            : "Agent registrieren"}
+                </Button>
+                {(isEditing || isDuplicating) && (
+                  <Button
+                    className="h-11 rounded-2xl border border-slate-200 bg-white px-5 text-slate-700 hover:bg-slate-50"
+                    disabled={createMutation.isPending || duplicateMutation.isPending || updateMutation.isPending || createSwarmMutation.isPending}
+                    onClick={resetForm}
+                  >
+                    Abbrechen
+                  </Button>
+                )}
               </div>
             </div>
-            <div className="grid gap-4 md:grid-cols-2">
-              <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none placeholder:text-slate-400" placeholder="Team" value={form.team} onChange={e => setForm({ ...form, team: e.target.value })} />
-              <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none placeholder:text-slate-400" placeholder="Owner" value={form.owner} onChange={e => setForm({ ...form, owner: e.target.value })} />
-              <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none placeholder:text-slate-400" placeholder="Modell" value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} />
-              <select className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none" value={form.environment} onChange={e => setForm({ ...form, environment: e.target.value as "production" | "staging" | "development" })}>
-                <option value="production">production</option>
-                <option value="staging">staging</option>
-                <option value="development">development</option>
-              </select>
+          </Surface>
+
+          <Surface className="p-6">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-slate-950">Agenten-Schwarm anlegen</p>
+                <p className="mt-1 text-sm leading-6 text-slate-500">Erstelle mehrere spezialisierte Agenten in einem Schritt und definiere, wie sie untereinander kommunizieren und orchestriert werden.</p>
+              </div>
+              <ModuleBadge label={`${swarmForm.members.length} Mitglieder`} tone="neutral" />
             </div>
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <Button
-                className="h-11 flex-1 rounded-2xl bg-slate-950 text-white hover:bg-slate-900"
-                disabled={createMutation.isPending || duplicateMutation.isPending || updateMutation.isPending}
-                onClick={() => {
-                  const payload = normalizeAgentFormInput(form);
-                  const validationMessage = getAgentFormValidationMessage(payload);
-
-                  if (validationMessage) {
-                    toast.error(validationMessage);
-                    return;
-                  }
-
-                  if (isEditing && editingAgentId !== null) {
-                    updateMutation.mutate({ id: editingAgentId, ...payload });
-                    return;
-                  }
-
-                  if (isDuplicating && editingAgentId !== null) {
-                    duplicateMutation.mutate({ sourceAgentId: editingAgentId, ...payload });
-                    return;
-                  }
-
-                  createMutation.mutate(payload);
-                }}
-              >
-                {updateMutation.isPending
-                  ? "Änderungen werden gespeichert …"
-                  : duplicateMutation.isPending
-                    ? "Duplikat wird gespeichert …"
-                    : createMutation.isPending
-                      ? "Registrierung läuft …"
-                      : isEditing
-                        ? "Änderungen speichern"
-                        : isDuplicating
-                          ? "Duplikat speichern"
-                          : "Agent registrieren"}
-              </Button>
-              {(isEditing || isDuplicating) && (
-                <Button
-                  className="h-11 rounded-2xl border border-slate-200 bg-white px-5 text-slate-700 hover:bg-slate-50"
-                  disabled={createMutation.isPending || duplicateMutation.isPending || updateMutation.isPending}
-                  onClick={resetForm}
-                >
-                  Abbrechen
+            <div className="mt-5 space-y-4">
+              <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none placeholder:text-slate-400" placeholder="Schwarmname" value={swarmForm.name} onChange={e => setSwarmForm(current => ({ ...current, name: e.target.value }))} />
+              <textarea className="min-h-[108px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-950 outline-none placeholder:text-slate-400" placeholder="Mission des Schwarms" value={swarmForm.mission} onChange={e => setSwarmForm(current => ({ ...current, mission: e.target.value }))} />
+              <div className="grid gap-4 md:grid-cols-2">
+                <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none placeholder:text-slate-400" placeholder="Team" value={swarmForm.team} onChange={e => setSwarmForm(current => ({ ...current, team: e.target.value }))} />
+                <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none placeholder:text-slate-400" placeholder="Owner" value={swarmForm.owner} onChange={e => setSwarmForm(current => ({ ...current, owner: e.target.value }))} />
+                <select className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none" value={swarmForm.topology} onChange={e => setSwarmForm(current => ({ ...current, topology: e.target.value as "mesh" | "hub_spoke" | "pipeline" }))}>
+                  <option value="hub_spoke">hub_spoke</option>
+                  <option value="mesh">mesh</option>
+                  <option value="pipeline">pipeline</option>
+                </select>
+                <select className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none" value={swarmForm.coordinationMode} onChange={e => setSwarmForm(current => ({ ...current, coordinationMode: e.target.value as "consensus" | "planner_executor" | "supervisor" }))}>
+                  <option value="supervisor">supervisor</option>
+                  <option value="planner_executor">planner_executor</option>
+                  <option value="consensus">consensus</option>
+                </select>
+              </div>
+              <div className="space-y-3">
+                {swarmForm.members.map((member, index) => (
+                  <div key={`member-${index}`} className="rounded-[24px] border border-slate-200/80 bg-slate-50 px-4 py-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-semibold text-slate-950">Mitglied {index + 1}</p>
+                      {swarmForm.members.length > 2 ? (
+                        <button type="button" className="text-xs font-medium text-slate-500 hover:text-slate-900" onClick={() => setSwarmForm(current => ({ ...current, members: current.members.filter((_, memberIndex) => memberIndex !== index) }))}>Entfernen</button>
+                      ) : null}
+                    </div>
+                    <div className="mt-3 grid gap-3 md:grid-cols-2">
+                      <input className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none placeholder:text-slate-400" placeholder="Name" value={member.name} onChange={e => setSwarmForm(current => ({ ...current, members: current.members.map((currentMember, memberIndex) => memberIndex === index ? { ...currentMember, name: e.target.value } : currentMember) }))} />
+                      <input className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none placeholder:text-slate-400" placeholder="Rolle" value={member.role} onChange={e => setSwarmForm(current => ({ ...current, members: current.members.map((currentMember, memberIndex) => memberIndex === index ? { ...currentMember, role: e.target.value } : currentMember) }))} />
+                      <input className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none placeholder:text-slate-400" placeholder="Modell" value={member.model} onChange={e => setSwarmForm(current => ({ ...current, members: current.members.map((currentMember, memberIndex) => memberIndex === index ? { ...currentMember, model: e.target.value } : currentMember) }))} />
+                      <input className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none placeholder:text-slate-400" placeholder="Tools, komma-getrennt" value={member.tools} onChange={e => setSwarmForm(current => ({ ...current, members: current.members.map((currentMember, memberIndex) => memberIndex === index ? { ...currentMember, tools: e.target.value } : currentMember) }))} />
+                    </div>
+                    <textarea className="mt-3 min-h-[96px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-950 outline-none placeholder:text-slate-400" placeholder="Verantwortungsbereich des Agenten" value={member.description} onChange={e => setSwarmForm(current => ({ ...current, members: current.members.map((currentMember, memberIndex) => memberIndex === index ? { ...currentMember, description: e.target.value } : currentMember) }))} />
+                  </div>
+                ))}
+              </div>
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <Button className="h-11 rounded-2xl border border-slate-200 bg-white px-5 text-slate-700 hover:bg-slate-50" onClick={() => setSwarmForm(current => ({ ...current, members: [...current.members, createEmptySwarmMember()] }))}>
+                  Mitglied hinzufügen
                 </Button>
-              )}
+                <Button
+                  className="h-11 flex-1 rounded-2xl bg-slate-950 text-white hover:bg-slate-900"
+                  disabled={createSwarmMutation.isPending || createMutation.isPending || duplicateMutation.isPending || updateMutation.isPending}
+                  onClick={() => {
+                    if (swarmValidationMessage) {
+                      toast.error(swarmValidationMessage);
+                      return;
+                    }
+                    createSwarmMutation.mutate(normalizedSwarm);
+                  }}
+                >
+                  {createSwarmMutation.isPending ? "Schwarm wird angelegt …" : "Agenten-Schwarm anlegen"}
+                </Button>
+              </div>
             </div>
-          </div>
-        </Surface>
+          </Surface>
+        </div>
       </div>
     </div>
   );

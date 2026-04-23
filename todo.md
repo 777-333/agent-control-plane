@@ -62,3 +62,7 @@
 - [x] Frontend-Parse- und Browserstatus nach den neuen Audit-/Approval-Filteränderungen erneut verifizieren und verbleibende JSX-/Extraktionsprobleme beheben
 - [x] Observability-Historien auf belastbare serverseitige Verlaufsdaten umstellen und den Export darauf aufbauen
 - [x] Rollenbasierte Benachrichtigungen als echte fachliche Zustellung im Produkt sichtbar machen statt nur Owner-Notifikationen mit Rollenhinweis zu versenden
+- [x] Agenten-Verwaltung um Schwarm-Anlage erweitern, sodass mehrere Agenten als koordinierte Einheit erstellt werden können
+- [x] Interne Kommunikationsbeziehungen, Rollen und Nachrichtenflüsse innerhalb eines Agenten-Schwarms modellieren und serverseitig verfügbar machen
+- [x] Frontend der Agenten-Verwaltung um Schwarm-Editor, Mitgliederübersicht und Kommunikationssicht erweitern
+- [x] Vitest-Abdeckung und Laufzeitprüfung für Agenten-Schwärme und ihre Kommunikationsflüsse ergänzen

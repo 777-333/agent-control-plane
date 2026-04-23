@@ -107,6 +107,46 @@ describe("control plane router", () => {
     expect(agents.some(agent => agent.name === "Compliance Sentinel Prime Kopie")).toBe(true);
   });
 
+  it("creates an agent swarm with coordinated members and communication links", async () => {
+    const caller = appRouter.createCaller(createAuthContext());
+    const swarm = await caller.agents.createSwarm({
+      name: "Revenue Recovery Swarm",
+      mission: "Koordiniert Analyse, Kundenansprache und Maßnahmenplanung für offene Revenue-Risiken.",
+      topology: "hub_spoke",
+      coordinationMode: "supervisor",
+      team: "Revenue Operations",
+      owner: "Sample User",
+      environment: "staging",
+      members: [
+        {
+          name: "Recovery Lead",
+          role: "supervisor",
+          description: "Priorisiert Revenue-Fälle, verteilt Aufgaben und bündelt Entscheidungen.",
+          model: "gpt-4.1",
+          tools: ["CRM", "Analytics"],
+        },
+        {
+          name: "Customer Liaison",
+          role: "communicator",
+          description: "Bereitet kundennahe Maßnahmen und Kommunikationsentwürfe vor.",
+          model: "gpt-4.1-mini",
+          tools: ["E-Mail", "CRM"],
+        },
+      ],
+    });
+
+    expect(swarm.name).toBe("Revenue Recovery Swarm");
+    expect(swarm.members).toHaveLength(2);
+    expect(swarm.communicationLinks.length).toBeGreaterThan(0);
+    expect(swarm.members.every(member => member.swarmId === swarm.id)).toBe(true);
+    expect(swarm.members.map(member => member.swarmRole)).toEqual(["supervisor", "communicator"]);
+
+    const snapshot = await caller.controlPlane.snapshot();
+    const createdSwarm = snapshot.agentSwarms.find(item => item.id === swarm.id);
+    expect(createdSwarm?.memberAgentIds).toHaveLength(2);
+    expect(createdSwarm?.communicationLinks[0]?.fromAgentName).toBeTruthy();
+  });
+
   it("creates custom privacy rules and exposes them through snapshot metadata", async () => {
     const caller = appRouter.createCaller(createAuthContext());
 
