@@ -45,12 +45,22 @@ function useSnapshot() {
   });
 }
 
-function LoadingState() {
+function LoadingState({
+  title = "Governance- und Operations-Daten",
+  description = "Die Oberfläche wird vorbereitet und aktuelle Betriebsdaten werden geladen.",
+}: {
+  title?: string;
+  description?: string;
+}) {
   return (
-    <div className="flex min-h-[60vh] items-center justify-center rounded-[28px] border border-slate-200/70 bg-white/75 shadow-[0_20px_60px_rgba(15,23,42,0.06)] backdrop-blur-sm">
-      <div className="flex items-center gap-3 text-slate-600">
-        <Loader2 className="h-5 w-5 animate-spin" />
-        <span className="text-sm font-medium">Lade Governance- und Operations-Daten …</span>
+    <div className="rounded-[28px] border border-slate-200/70 bg-white/80 p-8 shadow-[0_20px_60px_rgba(15,23,42,0.06)] backdrop-blur-sm">
+      <div className="max-w-2xl">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Module loading</p>
+        <div className="mt-4 flex items-center gap-3 text-slate-700">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          <span className="text-base font-semibold">{title}</span>
+        </div>
+        <p className="mt-3 text-sm leading-6 text-slate-500">{description}</p>
       </div>
     </div>
   );
@@ -787,7 +797,26 @@ export function ApprovalsPage() {
     },
   });
 
-  if (isLoading) return <LoadingState />;
+  const updateStage = (stageIndex: number, updater: (stage: ApprovalChainStageDraft) => ApprovalChainStageDraft) => {
+    setChainForm(current => ({
+      ...current,
+      stages: current.stages.map((stage, index) => (index === stageIndex ? updater(stage) : stage)),
+    }));
+  };
+
+  const selectedCalendarPreset = useMemo(() => calendarPresetLibrary.find(preset => preset.id === selectedCalendarPresetId) ?? calendarPresetLibrary[0], [calendarPresetLibrary, selectedCalendarPresetId]);
+  const updateChainCalendarProfile = (updater: (current: ApprovalChainCalendarProfile) => ApprovalChainCalendarProfile) => {
+    setChainForm(current => ({
+      ...current,
+      calendarProfile: updater(current.calendarProfile),
+    }));
+  };
+  const matchingPresetStages = useMemo(() => (selectedCalendarPreset ? countStagesMatchingCalendarPreset(chainForm.stages, selectedCalendarPreset) : 0), [chainForm.stages, selectedCalendarPreset]);
+  const simulationPreview = useMemo(() => simulateApprovalChain(chainForm.stages, simulationSignals), [chainForm.stages, simulationSignals]);
+  const timelinePreview = useMemo(() => simulateApprovalTimeline(chainForm.stages, simulationSignals, simulationCalendar), [chainForm.stages, simulationSignals, simulationCalendar]);
+  const simulationDuration = useMemo(() => timelinePreview.reduce((max, stage) => Math.max(max, stage.endMinute), 0), [timelinePreview]);
+
+  if (isLoading) return <LoadingState title="Approval Workflow" description="Genehmigungsketten, SLA-Simulation und Freigabemuster werden geladen." />;
   if (error || !data) return <ErrorState />;
 
   const loadChain = (chain: (typeof data.approvalChains)[number]) => {
@@ -825,25 +854,6 @@ export function ApprovalsPage() {
     });
     setSimulationMinute(0);
   };
-
-  const updateStage = (stageIndex: number, updater: (stage: ApprovalChainStageDraft) => ApprovalChainStageDraft) => {
-    setChainForm(current => ({
-      ...current,
-      stages: current.stages.map((stage, index) => (index === stageIndex ? updater(stage) : stage)),
-    }));
-  };
-
-  const selectedCalendarPreset = useMemo(() => calendarPresetLibrary.find(preset => preset.id === selectedCalendarPresetId) ?? calendarPresetLibrary[0], [calendarPresetLibrary, selectedCalendarPresetId]);
-  const updateChainCalendarProfile = (updater: (current: ApprovalChainCalendarProfile) => ApprovalChainCalendarProfile) => {
-    setChainForm(current => ({
-      ...current,
-      calendarProfile: updater(current.calendarProfile),
-    }));
-  };
-  const matchingPresetStages = useMemo(() => (selectedCalendarPreset ? countStagesMatchingCalendarPreset(chainForm.stages, selectedCalendarPreset) : 0), [chainForm.stages, selectedCalendarPreset]);
-  const simulationPreview = useMemo(() => simulateApprovalChain(chainForm.stages, simulationSignals), [chainForm.stages, simulationSignals]);
-  const timelinePreview = useMemo(() => simulateApprovalTimeline(chainForm.stages, simulationSignals, simulationCalendar), [chainForm.stages, simulationSignals, simulationCalendar]);
-  const simulationDuration = useMemo(() => timelinePreview.reduce((max, stage) => Math.max(max, stage.endMinute), 0), [timelinePreview]);
 
   const applyPresetToSimulation = () => {
     if (!selectedCalendarPreset) {
@@ -1415,7 +1425,7 @@ export function ApprovalsPage() {
 export function AuditPage() {
   const { data, isLoading, error } = useSnapshot();
   const [filter, setFilter] = useState("all");
-  if (isLoading) return <LoadingState />;
+  if (isLoading) return <LoadingState title="Audit Log" description="Governance-Ereignisse, Zeitstempel und Filter werden geladen." />;
   if (error || !data) return <ErrorState />;
 
   const filtered = data.auditEvents.filter(event => filter === "all" ? true : event.severity === filter);
@@ -1465,7 +1475,7 @@ export function AuditPage() {
 
 export function ConnectorsPage() {
   const { data, isLoading, error } = useSnapshot();
-  if (isLoading) return <LoadingState />;
+  if (isLoading) return <LoadingState title="Tool & Connector Layer" description="Systemverbindungen, Statussignale und Authentifizierungsarten werden geladen." />;
   if (error || !data) return <ErrorState />;
 
   return (
@@ -1504,7 +1514,7 @@ export function EvaluationsPage() {
     },
   });
   const [form, setForm] = useState({ agentId: 1, name: "", expectedOutcome: "" });
-  if (isLoading) return <LoadingState />;
+  if (isLoading) return <LoadingState title="Evaluation Layer" description="Testfälle, Ergebnisse und Pre-Deployment-Prüfungen werden geladen." />;
   if (error || !data) return <ErrorState />;
 
   return (
@@ -1623,7 +1633,7 @@ export function GuardrailsPage() {
     flags: "giu",
     validator: "none" as "none" | "phone" | "iban" | "payment_card",
   });
-  if (isLoading) return <LoadingState />;
+  if (isLoading) return <LoadingState title="Runtime Guardrails" description="Laufzeitregeln, Datenschutzfilter und Simulationspfade werden geladen." />;
   if (error || !data) return <ErrorState />;
 
   return (

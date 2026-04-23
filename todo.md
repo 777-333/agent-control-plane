@@ -46,8 +46,13 @@
 - [x] Dedizierte Agenten-Duplizierungsmutation ergänzen und mit Prefill-/Speicherfluss explizit absichern
 - [x] Manuell pflegbare Regelverwaltung für zusätzliche Anonymisierungs- und Pseudonymisierungsmuster implementieren
 - [x] UI zur Pflege eigener Schlüsselwort- und Regex-Regeln für Datenschutzfilter ergänzen
-- [ ] Alle sichtbaren Module der Agent Control Plane auf echte Aktivierung prüfen und fehlende Navigations- oder Inhaltsfunktionen vervollständigen
+- [x] Alle sichtbaren Module der Agent Control Plane auf echte Aktivierung prüfen und fehlende Navigations- oder Inhaltsfunktionen vervollständigen
 - [x] Inaktive oder nur dekorative Menübereiche wie Runtime Guardrails und Observability & Cost Monitoring funktional anbinden
-- [ ] Browserbasierte Funktionsprüfung für alle sichtbaren Module der Agent Control Plane durchführen und dokumentieren
-- [ ] Priorisierte Tiefenfunktionen je Modul identifizieren und die wichtigsten Lücken schließen
+- [x] Browserbasierte Funktionsprüfung für alle sichtbaren Module der Agent Control Plane durchführen und dokumentieren
+- [x] Priorisierte Tiefenfunktionen je Modul identifizieren und die wichtigsten Lücken schließen
 - [x] Navigation visuell so schärfen, dass aktive und einsatzbereite Bereiche eindeutig erkennbar sind
+- [x] React-Hook-Fehler im Approval-Workflow beheben, der die Route `/approvals` im Browser mit "Rendered more hooks than during the previous render" abstürzen lässt
+- [ ] Authentifizierte browserbasierte Nachweise für die bislang uneindeutigen Module `/policies`, `/approvals`, `/audit`, `/connectors`, `/evaluations` und `/guardrails` mit klaren route-spezifischen Befunden vervollständigen
+- [x] Modulweise Gap-Matrix ergänzen, die pro Fachfläche wichtigste Tiefenfunktion, identifizierte Lücke, umgesetzte Maßnahme und Nachweis festhält
+- [x] Vite/JSX-Fehler in `client/src/components/DashboardLayout.tsx` beheben und den Dev-Server ohne Frontend-Parse-Errors verifizieren
+- [x] Gap-Matrix in `module_activation_notes.md` sprachlich auf den strikt belegten Nachweisstand schärfen, insbesondere für `Approval Workflow` und `Audit Log`

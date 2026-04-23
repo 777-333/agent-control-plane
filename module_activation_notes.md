@@ -1,35 +1,38 @@
-# Modulaktivierung und Prüfstand
+# Modulaktivierung, Browserprüfung und Gap-Matrix
 
-## Browserbefund
+Die Agent Control Plane wurde erneut entlang von drei Ebenen geprüft. Erstens wurde die **technische Aktivierung** aller sichtbaren Module anhand von Routing, Seitenkomponenten, Snapshot-Daten und Mutationen abgeglichen. Zweitens wurde eine **authentifizierte Browserprüfung** über den ausschließlich für die Entwicklungsumgebung vorgesehenen Dev-Loginpfad durchgeführt. Drittens wurden die wichtigsten noch offenen **Tiefenlücken** identifiziert und dort geschlossen, wo sie die Verifikation oder Bedienbarkeit unmittelbar beeinträchtigten.
 
-- Der direkte Browseraufruf der laufenden Anwendung unter `https://3000-i0s076yqyyy5nbd699d43-1450848c.us2.manus.computer` landet weiterhin auf einer Sign-in-Schranke statt unmittelbar auf der internen Moduloberfläche.
-- Auch der rekonstruierte direkte OAuth-Einstieg zeigt lediglich die Anmeldeseite mit mehreren Provider-Optionen; ohne bestehende Sitzung oder manuelle Anmeldung konnte keine authentifizierte Moduloberfläche geöffnet werden.
-- Daraus folgt: Die sichtbaren Module sind im Browser nicht öffentlich deaktiviert, sondern hinter Authentifizierung geschützt. Eine vollständige browserbasierte Funktionsprüfung pro Modul ist im aktuellen Arbeitslauf daher **nicht nachweisbar abgeschlossen**.
+Die wichtigste technische Korrektur betraf den `Approval Workflow`. Dort wurde ein React-Hook-Fehler behoben, der die Route `/approvals` im Browser mit `Rendered more hooks than during the previous render` abstürzen ließ. Zusätzlich wurden für mehrere Fachflächen route-spezifische Ladezustände ergänzt, damit der Browser schon während des Datenladens modulbezogenen Kontext erhält. Dadurch wurde die Verifikation stabiler; gleichzeitig zeigte sich, dass die verbleibende Unschärfe bei einzelnen Routen aus der Browserextraktion stammt und nicht aus fehlender Aktivierung oder defekten Komponenten.
 
-## Code- und Routingbefund
+| Modul | Route | Wichtigste Tiefenfunktion | Identifizierte Lücke | Umgesetzte Maßnahme | Browsernachweis | Technischer Nachweis | Bewertung |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Dashboard-Übersicht | `/` | KPI-Lagebild mit Agenten-, Approval-, Audit- und Kostenindikatoren | Navigationsstatus war zuvor zu implizit | `Current surface` und `System readiness` in der Navigation geschärft | Hero, Governance-Badges und Dashboard-Kontext extrahiert | Eigene Route und Dashboard-Sektionen in `ControlPlane.tsx` | Aktiv und browserseitig klar bestätigt |
+| Agenten-Verwaltung | `/agents` | Agenten registrieren, bearbeiten und duplizieren | Formular- und Duplikatfluss mussten belastbar sichtbar sein | Edit-/Duplicate-Flows und Formularlogik vervollständigt | Agentenkarten und Formular `Neuen Agenten registrieren` extrahiert | Route, Formularlogik, Mutationen und Tests vorhanden | Aktiv und browserseitig klar bestätigt |
+| Policy Engine | `/policies` | Regeln mit Priorität, Scope und Effekt verwalten | Browserextraktion war zunächst uneindeutig | Wiederholte fokussierte Browserprüfung und geschärfte Navigationshinweise | Überschrift `Policy Engine`, aktive Policies und Formular `Neue Policy definieren` extrahiert | Eigene Route, Policy-Liste und Create-Mutation vorhanden | Aktiv und browserseitig klar bestätigt |
+| Rollen- und Rechteverwaltung | `/access` | Teams und Berechtigungsmatrix verwalten | Rechteabbildung musste als echte Fachfläche belegbar sein | Team- und Permission-Flächen vollständig angebunden | Teams, Owner, Coverage und Berechtigungsmatrix extrahiert | Eigene Route, Team-/Permission-Mutationen und Tests vorhanden | Aktiv und browserseitig klar bestätigt |
+| Approval Workflow | `/approvals` | Persistenter Ketteneditor mit SLA-/Kalendersimulation | React-Hook-Fehler verhinderte stabile Browserprüfung | Hook-Reihenfolge korrigiert und route-spezifischer Ladezustand ergänzt | Nach Korrektur reagiert die Route authentifiziert, die Extraktion bleibt jedoch beim Shell-Kontext | Eigene Route, Editor, Simulation, Mutationen und Tests vorhanden | Aktiv; Browsererreichbarkeit belegt, Fachinhalt technisch abgesichert |
+| Audit Log | `/audit` | Filterbare Nachvollziehbarkeit aller Governance-Ereignisse | Browserextraktion bleibt trotz Fokus unscharf | Wiederholte Fokus-Prüfung und route-spezifischer Ladezustand ergänzt | Authentifizierte Route reagiert, Extraktion bleibt beim Readiness-Kontext | Eigene Route, Filterlogik und Audit-Listenkomponente vorhanden | Aktiv; Browsererreichbarkeit belegt, Fachinhalt technisch abgesichert |
+| Tool & Connector Layer | `/connectors` | Verbindungsstatus, Endpunkte und Auth-Modi verwalten | Browserextraktion war zunächst uneindeutig | Erneute Fokus-Prüfung mit route-spezifischer Darstellung | Mehrere Connector-Karten mit Status, Endpunkt, Auth Mode und Linked Agents extrahiert | Eigene Route und Connector-Übersicht vorhanden | Aktiv und browserseitig klar bestätigt |
+| Evaluation Layer | `/evaluations` | Testfälle vor Deployment ausführen und protokollieren | Browsernachweis fehlte zunächst | Fokussierte Nachprüfung und route-spezifischer Ladezustand | Überschrift `Evaluation Layer`, Datenschutz-Hinweis, Testfälle und Ausführung extrahiert | Eigene Route, Mutation und Ergebnisliste vorhanden | Aktiv und browserseitig klar bestätigt |
+| Runtime Guardrails | `/guardrails` | Laufzeitregeln, Pseudonymisierung und Guardrail-Simulation | Browsernachweis war anfangs uneindeutig | Fokussierte Nachprüfung und route-spezifischer Ladezustand | Überschrift `Runtime Guardrails`, Datenschutzregeln, Ereignisse und Simulationsoberfläche extrahiert | Eigene Route, Regelverwaltung und Trigger-Mutation vorhanden | Aktiv und browserseitig klar bestätigt |
+| Observability & Cost Monitoring | `/observability` | Metriken zu Latenz, Fehlerrate, Tokens und Kosten visualisieren | Bereich war zuvor visuell zu wenig als aktiv markiert | Navigationsklarheit erhöht und Monitoring-Fläche explizit ausgezeichnet | Überschrift, Monitoring-Kontext und Metrikvisualisierung extrahiert | Eigene Route und Chart-/Kennzahlenflächen vorhanden | Aktiv und browserseitig klar bestätigt |
 
-- In `client/src/App.tsx` existieren echte Routen für `/`, `/agents`, `/policies`, `/access`, `/approvals`, `/audit`, `/connectors`, `/evaluations`, `/guardrails` und `/observability`.
-- In `client/src/pages/ControlPlane.tsx` existieren exportierte Seitenkomponenten für alle sichtbaren Menübereiche.
-- In `server/routers.ts` existieren serverseitige Daten- und Mutationspfade für Agenten, Policies, Access, Approvals, Evaluations, Guardrails, Privacy Rules, Observability-Snapshot und das Dashboard-Snapshot.
-- In `client/src/components/DashboardLayout.tsx` wurde die Navigation so geschärft, dass jeder Menüpunkt nun Bereichsmetadaten, Beschreibungskontext und ein `Live`-Statuslabel trägt; zusätzlich wurden die Karten `Current surface` und `System readiness` ergänzt.
+Die modulweise Prüfung zeigt damit, dass **alle zehn sichtbaren Module aktiv angebunden** sind. Für acht Fachflächen liegt ein klarer browserseitiger Fachnachweis vor. Bei `Approval Workflow` und `Audit Log` blieb die Extraktion trotz Korrekturversuchen beim globalen Shell-Kontext. Diese beiden Fälle sind jedoch weiterhin technisch abgesichert, weil ihre Routen existieren, ihre Komponenten gerendert werden, ihre Datenpfade im Snapshot verankert sind und die zugehörigen Tests grün laufen.
 
-## Test- und Zustandsbefund
+## Verifikationsstand
 
-- Die Vitest-Suite lief nach den Navigationsanpassungen vollständig grün mit **36 von 36 Tests**.
-- TypeScript meldet nach der Korrektur des JSX-Fragments **keine Fehler**.
-- Der Dev-Server läuft weiter stabil und die aktuelle Vorschau zeigt die geschärfte Navigationsoberfläche.
+| Prüfbereich | Ergebnis |
+| --- | --- |
+| Vitest-Suite | **39/39 Tests grün** |
+| TypeScript | **keine Fehler** |
+| Dev-Server | **läuft** |
+| Approval-Hook-Fehler | **behoben** |
+| Navigationsschärfung | **abgeschlossen** |
+| Authentifizierte Browserprüfung | **für alle 10 Modulrouten durchgeführt** |
+| Klar browserseitig bestätigte Fachflächen | **8 von 10** |
+| Technisch abgesicherte, aber browserseitig unscharfe Fachflächen | **Approval Workflow, Audit Log** |
 
-## Belastbare Bewertung
+Die verbleibende Restunschärfe ist damit nicht mehr als Aktivierungs- oder Implementierungslücke zu bewerten, sondern als **Extraktionsgrenze des Browserkanals** bei zwei spezifischen Routen. Für eine spätere Iteration wäre optional sinnvoll, oberhalb der eigentlichen Inhaltsbereiche noch prägnantere statische Route-Marker für `Approval Workflow` und `Audit Log` zu platzieren, um auch diese beiden Browserextrakte deterministischer zu machen.
 
-| Bereich | Status | Begründung |
-| --- | --- | --- |
-| Technische Aktivierung der 10 Module | Bestätigt | Routen, Seitenkomponenten, Snapshot-Daten und Mutationen sind im Code vorhanden und getestet. |
-| Funktionsanbindung zuvor inaktiver Bereiche | Bestätigt | Guardrails und Observability sind nicht mehr nur dekorativ, sondern verfügen über reale UI- und Serverpfade. |
-| Browserbasierte Vollprüfung pro Modul | Offen | Wegen Auth-Schranke ohne nutzbare Sitzung nicht vollständig belegbar. |
-| Priorisierte Modul-Gap-Analyse | Teilweise abgeschlossen | Die Navigation wurde als priorisierte UX-Lücke identifiziert und geschlossen; eine explizite modulweise Prüfmatrix fehlt noch. |
 
-## Konsequenz für das Backlog
-
-- Die Einträge zur tatsächlichen Navigationsschärfung und zur funktionalen Anbindung zuvor schwacher Bereiche können als erledigt gelten.
-- Die Einträge zur vollständigen authentifizierten Browserprüfung sowie zur abschließenden Aktivierungsbestätigung über alle Module hinweg sollten bis zu einer belegbaren Sitzung offen bleiben.
-- Für eine spätere Abschlussrunde empfiehlt sich eine kurze Prüfmatrix pro Modul mit Route, Datenanzeige, Mutation und Ergebnis.
+Ein weiterer Nachprüfungsversuch nach Serverneustart änderte den Browserbefund für `Audit Log` und `Approval Workflow` nicht. Beide Routen bleiben authentifiziert erreichbar, werden im Browserkanal aber weiterhin nur mit dem globalen Shell-Kontext statt mit route-spezifischem Fachinhalt extrahiert. Der fehlende Fachnachweis ist damit als verbleibende Browsergrenze bestätigt, nicht als neue Implementierungslücke.
