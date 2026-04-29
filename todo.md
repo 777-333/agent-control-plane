@@ -73,3 +73,15 @@
 - [x] Sichtbaren Nachweis für Nachrichtenhistorie und Composer in der Agenten-Verwaltung ergänzen und browserseitig gegen den laufenden Stand verifizieren
 - [x] Schwarm-Governance auf echtes Verhalten anwenden, indem schwarmweite Approval-/Policy-Durchsetzung in relevanten Agentenaktionen implementiert und getestet wird
 - [x] Browserbasierten Nachweis für Nachrichtenhistorie und Composer in der Agenten-Verwaltung mit klar extrahierbarem Oberflächenmarker vervollständigen
+- [x] Persistente Speicherung von Schwarm-Nachrichten in der Datenbasis statt nur im flüchtigen Verlauf umsetzen
+- [x] Suche und Filter für Kommunikationshistorien je Schwarm und Kommunikationspfad ergänzen
+- [x] Schwarmweite SLA-, Eskalations- und Freigaberegeln mit eigenem Reporting-Dashboard implementieren
+- [x] DB-Persistenz für Schwarm-Nachrichten mit gezielten Tests nachweisen, einschließlich erfolgreicher Migration und echtem Create/Read über die Datenbank
+- [x] Sichtbaren UI- und/oder Testnachweis für Such- und Filterfunktionen der Schwarm-Kommunikationshistorie ergänzen, einschließlich konkreter Filterwirkung
+- [x] Schwarmweites SLA-, Eskalations- und Freigabe-Reporting mit gezielten Tests und route-spezifischem UI-Nachweis absichern
+- [x] Browserseitigen Routenhinweis für die Agenten-Verwaltung so schärfen, dass Schwarm-Suche, Verlaufsfilter und SLA-Reporting im Oberflächen-Nachweis direkt sichtbar werden
+- [x] Gezielten Vitest- oder UI-Nachweis ergänzen, dass Suchtext- und Kind-Filter den Schwarm-Nachrichtenverlauf pro Kommunikationspfad tatsächlich reduzieren bzw. umschalten
+- [x] Gezielte Tests für SLA-, Eskalations- und Freigabe-Reporting pro Schwarm ergänzen und deren Kennzahlen im route-spezifischen UI-Nachweis explizit belegen
+- [x] Vitest-Konfiguration so erweitern, dass die neuen Schwarm-Helfertests aus dem Client-Lib-Bereich in der Standardsuite mitlaufen
+- [x] Sichtbar gewordene Client-Lib-Testabweichung im Approval-Chain-Editor nach Erweiterung der Standardsuite korrigieren
+- [x] Route-spezifischen Browsernachweis ergänzen, der konkrete Schwarm-Reporting-Kennzahlen auf `/agents` explizit sichtbar macht

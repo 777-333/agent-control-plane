@@ -222,6 +222,17 @@ export const metricSnapshots = mysqlTable("metricSnapshots", {
   capturedAt: timestamp("capturedAt").defaultNow().notNull(),
 });
 
+export const swarmMessages = mysqlTable("swarmMessages", {
+  id: int("id").autoincrement().primaryKey(),
+  swarmId: int("swarmId").notNull(),
+  communicationLinkId: int("communicationLinkId").notNull(),
+  senderAgentId: int("senderAgentId").notNull(),
+  senderAgentName: varchar("senderAgentName", { length: 160 }).notNull(),
+  content: text("content").notNull(),
+  kind: mysqlEnum("kind", ["directive", "status", "evidence", "approval"]).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type Team = typeof teams.$inferSelect;
@@ -235,3 +246,4 @@ export type Connector = typeof connectors.$inferSelect;
 export type Evaluation = typeof evaluations.$inferSelect;
 export type GuardrailEvent = typeof guardrailEvents.$inferSelect;
 export type MetricSnapshot = typeof metricSnapshots.$inferSelect;
+export type SwarmMessage = typeof swarmMessages.$inferSelect;

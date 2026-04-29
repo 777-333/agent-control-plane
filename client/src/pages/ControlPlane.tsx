@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { applyCalendarPresetToStages, countStagesMatchingCalendarPreset, createChainCalendarProfileFromPreset, createDefaultBusinessCalendar, createDefaultChainCalendarProfile, createDefaultSimulationSignals, createEmptyApprovalStageDraft, createRoleBasedCalendarPresetLibrary, getLaneLabel, moveStageToDropZone, reorderApprovalChainStages, simulateApprovalChain, simulateApprovalTimeline, type ApprovalBusinessCalendar, type ApprovalChainCalendarProfile, type ApprovalChainStageDraft } from "@/lib/approval-chain-editor";
 import { createAgentFormFromExistingAgent, createDefaultAgentForm, getAgentFormValidationMessage, normalizeAgentFormInput, type AgentFormInput } from "@/lib/agent-form";
+import { filterSwarmHistory, getSwarmReportingStats, type SwarmHistoryFilterKind } from "@/lib/swarm-insights";
 import { Loader2, Shield, Activity, BellRing, BrainCircuit, FileSearch, Blocks, UserCog, Fingerprint, ChartNoAxesCombined, Waypoints, Sparkles, GripVertical } from "lucide-react";
 import { toast } from "sonner";
 import { useEffect, useMemo, useState } from "react";
@@ -370,6 +371,9 @@ export function AgentsPage() {
       approvalRequired: true,
       approverRole: "operations_approver",
       escalationTarget: "Head of Operations",
+      slaMinutes: 20,
+      escalationAfterMinutes: 45,
+      reportingWindowHours: 24,
     },
     members: [
       { ...createEmptySwarmMember(), role: "supervisor", model: "gpt-4.1" },
@@ -380,6 +384,7 @@ export function AgentsPage() {
   const [editingSwarmId, setEditingSwarmId] = useState<number | null>(null);
   const [swarmDissolveMode, setSwarmDissolveMode] = useState<"retain_agents" | "remove_agents">("retain_agents");
   const [swarmMessageDrafts, setSwarmMessageDrafts] = useState<Record<number, string>>({});
+  const [swarmHistoryFilters, setSwarmHistoryFilters] = useState<Record<number, { query: string; kind: SwarmHistoryFilterKind }>>({});
   const normalizedForm = normalizeAgentFormInput(form);
   const trimmedDescription = normalizedForm.description;
   const isDescriptionTooShort = trimmedDescription.length > 0 && trimmedDescription.length < 10;
@@ -540,6 +545,7 @@ export function AgentsPage() {
           <ModuleBadge label="Schwarm-Kommunikation aktiv" tone="success" />
           <ModuleBadge label="Nachrichtenhistorie sichtbar" tone="neutral" />
           <ModuleBadge label="Composer je Kommunikationspfad" tone="warning" />
+          <ModuleBadge label="Suche und Filter je Pfad" tone="neutral" />
         </div>
         <p className="mt-3 text-sm leading-6 text-slate-700">
           Diese Route zeigt einen vollständigen Schwarm-Arbeitsbereich mit <strong>bearbeitbaren Agentenschwärmen</strong>,
@@ -553,6 +559,7 @@ export function AgentsPage() {
           <div className="mt-5 grid gap-4 md:grid-cols-2">
             {data.agentSwarms.map(swarm => {
               const members = data.agents.filter(agent => swarm.memberAgentIds.includes(agent.id));
+              const { messageWindowCount, approvalMessages, overdueLinks, escalatedLinks, averageResponseMinutes } = getSwarmReportingStats(swarm);
               return (
                 <div key={swarm.id} className="rounded-[24px] border border-indigo-200/70 bg-indigo-50/70 px-5 py-5 shadow-sm">
                   <div className="flex items-start justify-between gap-3">
@@ -568,6 +575,9 @@ export function AgentsPage() {
                       <div className="flex justify-between"><span>Umgebung</span><span className="font-medium text-slate-950">{swarm.environment}</span></div>
                       <div className="flex justify-between"><span>Policy-Modus</span><span className="font-medium text-slate-950">{swarm.governance.policyMode}</span></div>
                       <div className="flex justify-between"><span>Approver-Rolle</span><span className="font-medium text-slate-950">{swarm.governance.approverRole}</span></div>
+                      <div className="flex justify-between"><span>SLA</span><span className="font-medium text-slate-950">{swarm.governance.slaMinutes} min</span></div>
+                      <div className="flex justify-between"><span>Eskalation</span><span className="font-medium text-slate-950">{swarm.governance.escalationAfterMinutes} min</span></div>
+                      <div className="flex justify-between"><span>Reporting</span><span className="font-medium text-slate-950">{swarm.governance.reportingWindowHours} h</span></div>
                     </div>
 
                   <div className="mt-4 flex flex-wrap gap-2">
@@ -583,16 +593,69 @@ export function AgentsPage() {
                     </button>
                   </div>
                   <div className="mt-4 rounded-2xl border border-white/70 bg-white/90 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Schwarm-Reporting</p>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                      <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
+                        <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Nachrichtenfenster</p>
+                        <p className="mt-2 text-xl font-semibold text-slate-950">{messageWindowCount}</p>
+                        <p className="mt-1 text-xs text-slate-500">letzte {swarm.governance.reportingWindowHours} Stunden</p>
+                      </div>
+                      <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
+                        <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Approval-Ereignisse</p>
+                        <p className="mt-2 text-xl font-semibold text-slate-950">{approvalMessages}</p>
+                        <p className="mt-1 text-xs text-slate-500">Schwarmweite Freigaben im Zeitfenster</p>
+                      </div>
+                      <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
+                        <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">SLA verletzt</p>
+                        <p className="mt-2 text-xl font-semibold text-amber-700">{overdueLinks}</p>
+                        <p className="mt-1 text-xs text-slate-500">Pfad älter als {swarm.governance.slaMinutes} Minuten</p>
+                      </div>
+                      <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
+                        <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Ø Reaktionsalter</p>
+                        <p className="mt-2 text-xl font-semibold text-slate-950">{averageResponseMinutes} min</p>
+                        <p className="mt-1 text-xs text-slate-500">{escalatedLinks} Pfade über Eskalationsgrenze</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-4 rounded-2xl border border-white/70 bg-white/90 p-4">
                     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Kommunikationspfade</p>
                     <div className="mt-3 grid gap-2 text-sm text-slate-600">
-                      {swarm.communicationLinks.map(link => (
+                      {swarm.communicationLinks.map(link => {
+                        const filter = swarmHistoryFilters[link.id] ?? { query: "", kind: "all" as const };
+                        const filteredHistory = filterSwarmHistory(link.history, filter);
+
+                        return (
                         <div key={link.id} className="rounded-2xl border border-slate-200/80 bg-slate-50 px-3 py-3">
                           <p className="font-medium text-slate-950">{link.fromAgentName} → {link.toAgentName}</p>
                           <p className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">{link.channel} · {link.protocol}</p>
                           <p className="mt-2 text-sm leading-6 text-slate-600">{link.purpose}</p>
                           <div className="mt-3 space-y-2 rounded-2xl border border-white/80 bg-white/90 p-3">
-                            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Nachrichtenverlauf</p>
-                            {link.history.slice(-3).map(message => (
+                            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                              <div>
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Nachrichtenverlauf</p>
+                                <p className="mt-1 text-xs text-slate-500">{filteredHistory.length} von {link.history.length} Einträgen sichtbar</p>
+                              </div>
+                              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_160px] lg:min-w-[320px]">
+                                <input
+                                  className="h-10 rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-950 outline-none placeholder:text-slate-400"
+                                  placeholder="Verlauf durchsuchen"
+                                  value={filter.query}
+                                  onChange={event => setSwarmHistoryFilters(current => ({ ...current, [link.id]: { ...filter, query: event.target.value } }))}
+                                />
+                                <select
+                                  className="h-10 rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-950 outline-none"
+                                  value={filter.kind}
+                                  onChange={event => setSwarmHistoryFilters(current => ({ ...current, [link.id]: { ...filter, kind: event.target.value as typeof filter.kind } }))}
+                                >
+                                  <option value="all">Alle Typen</option>
+                                  <option value="directive">directive</option>
+                                  <option value="status">status</option>
+                                  <option value="evidence">evidence</option>
+                                  <option value="approval">approval</option>
+                                </select>
+                              </div>
+                            </div>
+                            {filteredHistory.slice(-6).map(message => (
                               <div key={message.id} className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2">
                                 <div className="flex items-center justify-between gap-2 text-[11px] uppercase tracking-[0.18em] text-slate-400">
                                   <span>{message.senderAgentName} · {message.kind}</span>
@@ -601,6 +664,11 @@ export function AgentsPage() {
                                 <p className="mt-2 text-sm leading-6 text-slate-600">{message.content}</p>
                               </div>
                             ))}
+                            {filteredHistory.length === 0 ? (
+                              <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-500">
+                                Für die aktuelle Filterkombination wurden keine Nachrichten gefunden.
+                              </div>
+                            ) : null}
                             <textarea
                               className="min-h-[84px] w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-950 outline-none placeholder:text-slate-400"
                               placeholder={`Nachricht von ${link.fromAgentName} an ${link.toAgentName}`}
@@ -629,7 +697,8 @@ export function AgentsPage() {
                             </Button>
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
@@ -811,6 +880,9 @@ export function AgentsPage() {
                 </select>
                 <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none placeholder:text-slate-400" placeholder="Approver-Rolle" value={swarmForm.governance.approverRole} onChange={e => setSwarmForm(current => ({ ...current, governance: { ...current.governance, approverRole: e.target.value } }))} />
                 <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none placeholder:text-slate-400 md:col-span-2" placeholder="Eskalationsziel" value={swarmForm.governance.escalationTarget} onChange={e => setSwarmForm(current => ({ ...current, governance: { ...current.governance, escalationTarget: e.target.value } }))} />
+                <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none placeholder:text-slate-400" type="number" min={5} max={1440} placeholder="SLA in Minuten" value={swarmForm.governance.slaMinutes} onChange={e => setSwarmForm(current => ({ ...current, governance: { ...current.governance, slaMinutes: Number(e.target.value || 0) } }))} />
+                <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none placeholder:text-slate-400" type="number" min={5} max={2880} placeholder="Eskalation nach Minuten" value={swarmForm.governance.escalationAfterMinutes} onChange={e => setSwarmForm(current => ({ ...current, governance: { ...current.governance, escalationAfterMinutes: Number(e.target.value || 0) } }))} />
+                <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none placeholder:text-slate-400 md:col-span-2" type="number" min={1} max={720} placeholder="Reporting-Fenster in Stunden" value={swarmForm.governance.reportingWindowHours} onChange={e => setSwarmForm(current => ({ ...current, governance: { ...current.governance, reportingWindowHours: Number(e.target.value || 0) } }))} />
               </div>
               <div className="space-y-3">
                 {swarmForm.members.map((member, index) => (

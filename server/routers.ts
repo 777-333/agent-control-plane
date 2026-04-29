@@ -87,6 +87,9 @@ export const appRouter = router({
             approvalRequired: z.boolean(),
             approverRole: z.string().min(2),
             escalationTarget: z.string().min(2),
+            slaMinutes: z.number().int().min(5).max(1440),
+            escalationAfterMinutes: z.number().int().min(5).max(2880),
+            reportingWindowHours: z.number().int().min(1).max(720),
           }),
           members: z.array(
             z.object({
@@ -116,6 +119,9 @@ export const appRouter = router({
             approvalRequired: z.boolean(),
             approverRole: z.string().min(2),
             escalationTarget: z.string().min(2),
+            slaMinutes: z.number().int().min(5).max(1440),
+            escalationAfterMinutes: z.number().int().min(5).max(2880),
+            reportingWindowHours: z.number().int().min(1).max(720),
           }),
           members: z.array(
             z.object({

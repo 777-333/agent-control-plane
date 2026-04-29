@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, approvalChains, approvalStages, users } from "../drizzle/schema";
+import { InsertUser, approvalChains, approvalStages, swarmMessages, users } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 import {
   combinePrivacySanitizationResults,
@@ -156,6 +156,9 @@ type AgentSwarmGovernanceRecord = {
   approvalRequired: boolean;
   approverRole: string;
   escalationTarget: string;
+  slaMinutes: number;
+  escalationAfterMinutes: number;
+  reportingWindowHours: number;
 };
 
 type AgentSwarmRecord = {
@@ -456,6 +459,9 @@ const agentSwarmsData: AgentSwarmRecord[] = [
       approvalRequired: true,
       approverRole: "finance_approver",
       escalationTarget: "Head of Operations",
+      slaMinutes: 20,
+      escalationAfterMinutes: 45,
+      reportingWindowHours: 24,
     },
     communicationLinks: [
       {
@@ -1510,6 +1516,85 @@ function cloneAgentSwarm(swarm: AgentSwarmRecord) {
   };
 }
 
+function getSwarmMessageFingerprint(message: Pick<AgentSwarmMessageRecord, "senderAgentId" | "content" | "kind" | "createdAt">) {
+  return `${message.senderAgentId}:${message.kind}:${message.createdAt}:${message.content}`;
+}
+
+async function syncPersistedSwarmMessagesForSwarm(swarm: AgentSwarmRecord) {
+  const db = await getDb();
+  if (!db) {
+    return;
+  }
+
+  await db.delete(swarmMessages).where(eq(swarmMessages.swarmId, swarm.id));
+
+  const rows = swarm.communicationLinks.flatMap(link =>
+    link.history.map(message => ({
+      swarmId: swarm.id,
+      communicationLinkId: link.id,
+      senderAgentId: message.senderAgentId,
+      senderAgentName: message.senderAgentName,
+      content: message.content,
+      kind: message.kind,
+      createdAt: new Date(message.createdAt),
+    })),
+  );
+
+  if (rows.length > 0) {
+    await db.insert(swarmMessages).values(rows);
+  }
+}
+
+async function loadPersistedSwarmMessages(swarm: AgentSwarmRecord) {
+  const db = await getDb();
+  const clone = cloneAgentSwarm(swarm);
+  if (!db) {
+    return clone;
+  }
+
+  const persistedMessages = await db.select().from(swarmMessages).where(eq(swarmMessages.swarmId, swarm.id));
+  if (persistedMessages.length === 0) {
+    return clone;
+  }
+
+  const messageMap = new Map<number, AgentSwarmMessageRecord[]>();
+  persistedMessages.forEach(message => {
+    const bucket = messageMap.get(message.communicationLinkId) ?? [];
+    bucket.push({
+      id: message.id,
+      senderAgentId: message.senderAgentId,
+      senderAgentName: message.senderAgentName,
+      content: message.content,
+      kind: message.kind,
+      createdAt: message.createdAt.getTime(),
+    });
+    messageMap.set(message.communicationLinkId, bucket);
+  });
+
+  clone.communicationLinks = clone.communicationLinks
+    .map(link => {
+      const seen = new Set(link.history.map(getSwarmMessageFingerprint));
+      const persistedHistory = (messageMap.get(link.id) ?? []).filter(message => {
+        const fingerprint = getSwarmMessageFingerprint(message);
+        if (seen.has(fingerprint)) {
+          return false;
+        }
+        seen.add(fingerprint);
+        return true;
+      });
+      const history = [...link.history, ...persistedHistory].sort((a, b) => a.createdAt - b.createdAt);
+      const lastMessageAt = history.length > 0 ? history[history.length - 1]!.createdAt : link.lastMessageAt;
+      return {
+        ...link,
+        history,
+        lastMessageAt,
+      };
+    })
+    .sort((a, b) => b.lastMessageAt - a.lastMessageAt);
+
+  return clone;
+}
+
 function createSwarmMembers(swarmId: number, input: AgentSwarmMutationInput, createdAt: number) {
   return input.members.map((member, index) => ({
     id: nextAgentId++,
@@ -1535,9 +1620,8 @@ function createSwarmMembers(swarmId: number, input: AgentSwarmMutationInput, cre
 }
 
 export async function listAgentSwarms() {
-  return [...agentSwarmsData]
-    .map(cloneAgentSwarm)
-    .sort((a, b) => b.createdAt - a.createdAt);
+  const swarms = await Promise.all(agentSwarmsData.map(swarm => loadPersistedSwarmMessages(swarm)));
+  return swarms.sort((a, b) => b.createdAt - a.createdAt);
 }
 
 export async function createAgentSwarm(input: AgentSwarmMutationInput) {
@@ -1567,8 +1651,9 @@ export async function createAgentSwarm(input: AgentSwarmMutationInput) {
 
   agentsData.unshift(...swarmMembers.slice().reverse());
   agentSwarmsData.unshift(swarm);
+  await syncPersistedSwarmMessagesForSwarm(swarm);
   return {
-    ...cloneAgentSwarm(swarm),
+    ...(await loadPersistedSwarmMessages(swarm)),
     members: swarmMembers,
   };
 }
@@ -1605,8 +1690,9 @@ export async function updateAgentSwarm(input: AgentSwarmMutationInput & { id: nu
   swarm.communicationLinks = buildSwarmCommunicationLinks(swarm.id, swarmMembers, input.topology);
 
   agentsData.unshift(...swarmMembers.slice().reverse());
+  await syncPersistedSwarmMessagesForSwarm(swarm);
   return {
-    ...cloneAgentSwarm(swarm),
+    ...(await loadPersistedSwarmMessages(swarm)),
     members: swarmMembers,
   };
 }
@@ -1636,6 +1722,11 @@ export async function dissolveAgentSwarm(input: { id: number; mode: AgentSwarmDi
         agent.communicationMode = null;
       }
     });
+  }
+
+  const db = await getDb();
+  if (db) {
+    await db.delete(swarmMessages).where(eq(swarmMessages.swarmId, swarm.id));
   }
 
   agentSwarmsData.splice(swarmIndex, 1);
@@ -1689,6 +1780,20 @@ export async function postAgentSwarmMessage(input: {
   link.history.push(message);
   link.lastMessageAt = message.createdAt;
   link.status = isSensitiveAction && input.kind === "approval" ? "degraded" : "active";
+
+  const db = await getDb();
+  if (db) {
+    await db.insert(swarmMessages).values({
+      swarmId: swarm.id,
+      communicationLinkId: link.id,
+      senderAgentId: message.senderAgentId,
+      senderAgentName: message.senderAgentName,
+      content: message.content,
+      kind: message.kind,
+      createdAt: new Date(message.createdAt),
+    });
+  }
+
   return {
     ...link,
     history: [...link.history],

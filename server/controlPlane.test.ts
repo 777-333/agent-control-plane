@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { appRouter } from "./routers";
+import { eq } from "drizzle-orm";
+import { swarmMessages } from "../drizzle/schema";
 import type { TrpcContext } from "./_core/context";
+import { getDb } from "./db";
 import { resetCustomPrivacyRules } from "./privacy";
+import { appRouter } from "./routers";
 
 type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
 
@@ -122,6 +125,9 @@ describe("control plane router", () => {
         approvalRequired: true,
         approverRole: "revenue_approver",
         escalationTarget: "VP Revenue Operations",
+        slaMinutes: 15,
+        escalationAfterMinutes: 30,
+        reportingWindowHours: 12,
       },
       members: [
         {
@@ -183,6 +189,51 @@ describe("control plane router", () => {
     })).rejects.toThrow("Quellagenten");
   });
 
+  it("persists swarm messages through the database and exposes them again in the snapshot", async () => {
+    const caller = appRouter.createCaller(createAuthContext());
+    const snapshot = await caller.controlPlane.snapshot();
+    const seededSwarm = snapshot.agentSwarms[0]!;
+    const seededLink = seededSwarm.communicationLinks[0]!;
+    const content = `Persistenztest ${Date.now()}`;
+
+    await caller.agents.postSwarmMessage({
+      swarmId: seededSwarm.id,
+      communicationLinkId: seededLink.id,
+      senderAgentId: seededLink.fromAgentId,
+      content,
+      kind: "status",
+    });
+
+    const db = await getDb();
+    expect(db).toBeTruthy();
+
+    if (!db) {
+      return;
+    }
+
+    const persistedRows = await db
+      .select()
+      .from(swarmMessages)
+      .where(eq(swarmMessages.swarmId, seededSwarm.id));
+
+    expect(
+      persistedRows.some(
+        row =>
+          row.communicationLinkId === seededLink.id &&
+          row.senderAgentId === seededLink.fromAgentId &&
+          row.content === content &&
+          row.kind === "status",
+      ),
+    ).toBe(true);
+
+    const refreshedSnapshot = await caller.controlPlane.snapshot();
+    const refreshedLink = refreshedSnapshot.agentSwarms
+      .find(item => item.id === seededSwarm.id)
+      ?.communicationLinks.find(item => item.id === seededLink.id);
+
+    expect(refreshedLink?.history.some(message => message.content === content && message.kind === "status")).toBe(true);
+  });
+
   it("enforces swarm governance for sensitive communication paths", async () => {
     const caller = appRouter.createCaller(createAuthContext());
     const snapshot = await caller.controlPlane.snapshot();
@@ -220,6 +271,9 @@ describe("control plane router", () => {
         approvalRequired: true,
         approverRole: "platform_approver",
         escalationTarget: "Chief Platform Officer",
+        slaMinutes: 10,
+        escalationAfterMinutes: 20,
+        reportingWindowHours: 24,
       },
       members: [
         {

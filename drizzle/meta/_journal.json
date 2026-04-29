@@ -43,6 +43,13 @@
       "when": 1776722863222,
       "tag": "0005_silly_wallow",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1777060024258,
+      "tag": "0006_fearless_fallen_one",
+      "breakpoints": true
     }
   ]
 }

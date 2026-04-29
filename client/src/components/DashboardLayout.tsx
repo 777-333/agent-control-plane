@@ -58,7 +58,7 @@ const menuItems = [
     label: "Agenten-Verwaltung",
     path: "/agents",
     area: "Operations",
-    description: "Registrierung, Bearbeitung, Duplizierung und operative Pflege bestehender Agenten.",
+    description: "Registrierung, Schwarm-Kommunikation, Verlaufsfilter sowie Kennzahlen zu Nachrichtenfenster, Approval-Ereignissen, SLA verletzt und Eskalationshinweisen.",
     statusLabel: "Live",
   },
   {
@@ -309,7 +309,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: DashboardLayoutCo
                     Jede Navigationsfläche führt auf eine echte Produktseite mit Route, Datenbindung oder operativer Mutation.
                   </p>
                   <p className="mt-2 text-xs leading-5 text-emerald-900">
-                    Aktuelle Route: {activeMenuItem.label} · {activeMenuItem.area}
+                    Aktuelle Route: {activeMenuItem.label} · {activeMenuItem.area} · {activeMenuItem.description}
                   </p>
                 </div>
               </>
