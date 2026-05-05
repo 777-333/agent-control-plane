@@ -85,3 +85,17 @@
 - [x] Vitest-Konfiguration so erweitern, dass die neuen Schwarm-Helfertests aus dem Client-Lib-Bereich in der Standardsuite mitlaufen
 - [x] Sichtbar gewordene Client-Lib-Testabweichung im Approval-Chain-Editor nach Erweiterung der Standardsuite korrigieren
 - [x] Route-spezifischen Browsernachweis ergänzen, der konkrete Schwarm-Reporting-Kennzahlen auf `/agents` explizit sichtbar macht
+- [x] Echten UI-Interaktionstest für Schwarm-Filter und Reporting-Kontext ergänzen
+- [x] Echten UI-Komponententest für den Schwarm-Reporting-Kontext ergänzen, der sichtbare Kennzahlen und eine Benutzerinteraktion im Reporting-Bereich verifiziert
+- [x] Bestehenden UI-Interaktionstest so erweitern, dass neben Such-/Typfilter auch der Reporting-Kontext der Schwarmkarte explizit nachgewiesen wird
+- [x] Bestehenden UI-Interaktionstest der Schwarmkarte so erweitern, dass er in einem gemeinsamen Ablauf sowohl Such-/Typfilter als auch den Reporting-Kontext verifiziert
+- [x] Drilldown-Ansichten pro Schwarm-Reporting-Kennzahl mit Link auf betroffene Kommunikationspfade umsetzen
+- [x] Exportierbare Schwarm-Reports für Governance-Reviews als CSV und optionaler PDF-Export ergänzen
+- [x] Echten PDF-Export für Schwarm-Reports ergänzen, der eine PDF-Datei erzeugt statt nur eine Print-Ansicht zu öffnen
+- [x] Fehlerbehandlung für CSV- und PDF-Report-Export ergänzen, insbesondere bei blockierten oder fehlgeschlagenen Download-/Fensteroperationen
+- [x] Explizite Fehlerpfade für CSV-/PDF-Export testen, einschließlich fehlschlagender Download- oder Save-Operationen mit sichtbarer Fehlermeldung
+- [x] CSV-/PDF-Export um belastbare Failure-Erkennung ergänzen, damit stille Download-Fehlschläge dem Nutzer sichtbar gemeldet werden
+- [x] CSV-Export um echte Failure-Erkennung oder Fallback ergänzen, damit auch nicht-werfende fehlgeschlagene Download-Auslösungen sichtbar gemeldet werden
+- [x] Explizite Tests für stille CSV-/PDF-Download-Fehlschläge ergänzen, nicht nur für Exceptions
+- [x] Explizite UI-Tests für stille CSV-/PDF-Download-Fehlschläge ergänzen, die Fallback-Link und Nutzerhinweis nach nicht-werfender Download-Auslösung verifizieren
+- [x] Nachweisen, dass der Export-Fallback bei ausbleibendem Auto-Download sichtbar und nutzbar bleibt, statt nur Exception-Pfade zu testen

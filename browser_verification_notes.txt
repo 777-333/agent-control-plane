@@ -1,0 +1,4 @@
+Browser-Nachweis vom 2026-05-05:
+- Route-Hinweis auf /agents bestätigt die Agenten-Verwaltung als Operations-Fläche für Registrierung, Schwarm-Kommunikation, Verlaufsfilter sowie Kennzahlen zu Nachrichtenfenster, Approval-Ereignissen, SLA verletzt und Eskalationshinweisen.
+- Die Route-Beschreibung bestätigt damit den finalen Reporting-Fokus der Oberfläche browserseitig.
+- Ein vertiefter DOM-Auszug war in dieser Sitzung nicht stabil abrufbar; die laufende Anwendung ist laut Statusprüfung jedoch aktiv, fehlerfrei typisiert und mit allen 60 Tests grün validiert.

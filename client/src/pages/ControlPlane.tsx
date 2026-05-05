@@ -1,9 +1,11 @@
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { SwarmHistoryPanel } from "@/components/SwarmHistoryPanel";
+import { SwarmReportingPanel } from "@/components/SwarmReportingPanel";
 import { applyCalendarPresetToStages, countStagesMatchingCalendarPreset, createChainCalendarProfileFromPreset, createDefaultBusinessCalendar, createDefaultChainCalendarProfile, createDefaultSimulationSignals, createEmptyApprovalStageDraft, createRoleBasedCalendarPresetLibrary, getLaneLabel, moveStageToDropZone, reorderApprovalChainStages, simulateApprovalChain, simulateApprovalTimeline, type ApprovalBusinessCalendar, type ApprovalChainCalendarProfile, type ApprovalChainStageDraft } from "@/lib/approval-chain-editor";
 import { createAgentFormFromExistingAgent, createDefaultAgentForm, getAgentFormValidationMessage, normalizeAgentFormInput, type AgentFormInput } from "@/lib/agent-form";
-import { filterSwarmHistory, getSwarmReportingStats, type SwarmHistoryFilterKind } from "@/lib/swarm-insights";
+import { getSwarmReportingStats, type SwarmHistoryFilterKind, type SwarmReportingMetricKey } from "@/lib/swarm-insights";
 import { Loader2, Shield, Activity, BellRing, BrainCircuit, FileSearch, Blocks, UserCog, Fingerprint, ChartNoAxesCombined, Waypoints, Sparkles, GripVertical } from "lucide-react";
 import { toast } from "sonner";
 import { useEffect, useMemo, useState } from "react";
@@ -385,6 +387,8 @@ export function AgentsPage() {
   const [swarmDissolveMode, setSwarmDissolveMode] = useState<"retain_agents" | "remove_agents">("retain_agents");
   const [swarmMessageDrafts, setSwarmMessageDrafts] = useState<Record<number, string>>({});
   const [swarmHistoryFilters, setSwarmHistoryFilters] = useState<Record<number, { query: string; kind: SwarmHistoryFilterKind }>>({});
+  const [swarmReportingMetric, setSwarmReportingMetric] = useState<Record<number, SwarmReportingMetricKey>>({});
+  const [swarmReportingSelection, setSwarmReportingSelection] = useState<Record<number, number | null>>({});
   const normalizedForm = normalizeAgentFormInput(form);
   const trimmedDescription = normalizedForm.description;
   const isDescriptionTooShort = trimmedDescription.length > 0 && trimmedDescription.length < 10;
@@ -592,111 +596,48 @@ export function AgentsPage() {
                       Schwarm bearbeiten
                     </button>
                   </div>
-                  <div className="mt-4 rounded-2xl border border-white/70 bg-white/90 p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Schwarm-Reporting</p>
-                    <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                      <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
-                        <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Nachrichtenfenster</p>
-                        <p className="mt-2 text-xl font-semibold text-slate-950">{messageWindowCount}</p>
-                        <p className="mt-1 text-xs text-slate-500">letzte {swarm.governance.reportingWindowHours} Stunden</p>
-                      </div>
-                      <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
-                        <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Approval-Ereignisse</p>
-                        <p className="mt-2 text-xl font-semibold text-slate-950">{approvalMessages}</p>
-                        <p className="mt-1 text-xs text-slate-500">Schwarmweite Freigaben im Zeitfenster</p>
-                      </div>
-                      <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
-                        <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">SLA verletzt</p>
-                        <p className="mt-2 text-xl font-semibold text-amber-700">{overdueLinks}</p>
-                        <p className="mt-1 text-xs text-slate-500">Pfad älter als {swarm.governance.slaMinutes} Minuten</p>
-                      </div>
-                      <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
-                        <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Ø Reaktionsalter</p>
-                        <p className="mt-2 text-xl font-semibold text-slate-950">{averageResponseMinutes} min</p>
-                        <p className="mt-1 text-xs text-slate-500">{escalatedLinks} Pfade über Eskalationsgrenze</p>
-                      </div>
-                    </div>
-                  </div>
+                  <SwarmReportingPanel
+                    swarm={swarm}
+                    selectedMetric={swarmReportingMetric[swarm.id] ?? "messages"}
+                    selectedLinkId={swarmReportingSelection[swarm.id] ?? null}
+                    onSelectMetric={metric => {
+                      setSwarmReportingMetric(current => ({ ...current, [swarm.id]: metric }));
+                      setSwarmReportingSelection(current => ({ ...current, [swarm.id]: null }));
+                    }}
+                    onSelectLink={linkId => setSwarmReportingSelection(current => ({ ...current, [swarm.id]: linkId }))}
+                  />
                   <div className="mt-4 rounded-2xl border border-white/70 bg-white/90 p-4">
                     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Kommunikationspfade</p>
                     <div className="mt-3 grid gap-2 text-sm text-slate-600">
                       {swarm.communicationLinks.map(link => {
                         const filter = swarmHistoryFilters[link.id] ?? { query: "", kind: "all" as const };
-                        const filteredHistory = filterSwarmHistory(link.history, filter);
 
                         return (
-                        <div key={link.id} className="rounded-2xl border border-slate-200/80 bg-slate-50 px-3 py-3">
-                          <p className="font-medium text-slate-950">{link.fromAgentName} → {link.toAgentName}</p>
-                          <p className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">{link.channel} · {link.protocol}</p>
-                          <p className="mt-2 text-sm leading-6 text-slate-600">{link.purpose}</p>
-                          <div className="mt-3 space-y-2 rounded-2xl border border-white/80 bg-white/90 p-3">
-                            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                              <div>
-                                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Nachrichtenverlauf</p>
-                                <p className="mt-1 text-xs text-slate-500">{filteredHistory.length} von {link.history.length} Einträgen sichtbar</p>
-                              </div>
-                              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_160px] lg:min-w-[320px]">
-                                <input
-                                  className="h-10 rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-950 outline-none placeholder:text-slate-400"
-                                  placeholder="Verlauf durchsuchen"
-                                  value={filter.query}
-                                  onChange={event => setSwarmHistoryFilters(current => ({ ...current, [link.id]: { ...filter, query: event.target.value } }))}
-                                />
-                                <select
-                                  className="h-10 rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-950 outline-none"
-                                  value={filter.kind}
-                                  onChange={event => setSwarmHistoryFilters(current => ({ ...current, [link.id]: { ...filter, kind: event.target.value as typeof filter.kind } }))}
-                                >
-                                  <option value="all">Alle Typen</option>
-                                  <option value="directive">directive</option>
-                                  <option value="status">status</option>
-                                  <option value="evidence">evidence</option>
-                                  <option value="approval">approval</option>
-                                </select>
-                              </div>
-                            </div>
-                            {filteredHistory.slice(-6).map(message => (
-                              <div key={message.id} className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2">
-                                <div className="flex items-center justify-between gap-2 text-[11px] uppercase tracking-[0.18em] text-slate-400">
-                                  <span>{message.senderAgentName} · {message.kind}</span>
-                                  <span>{timeAgo(message.createdAt)}</span>
-                                </div>
-                                <p className="mt-2 text-sm leading-6 text-slate-600">{message.content}</p>
-                              </div>
-                            ))}
-                            {filteredHistory.length === 0 ? (
-                              <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-500">
-                                Für die aktuelle Filterkombination wurden keine Nachrichten gefunden.
-                              </div>
-                            ) : null}
-                            <textarea
-                              className="min-h-[84px] w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-950 outline-none placeholder:text-slate-400"
-                              placeholder={`Nachricht von ${link.fromAgentName} an ${link.toAgentName}`}
-                              value={swarmMessageDrafts[link.id] ?? ""}
-                              onChange={event => setSwarmMessageDrafts(current => ({ ...current, [link.id]: event.target.value }))}
-                            />
-                            <Button
-                              className="h-10 w-full rounded-2xl bg-slate-950 text-white hover:bg-slate-900"
-                              disabled={postSwarmMessageMutation.isPending}
-                              onClick={() => {
-                                const content = (swarmMessageDrafts[link.id] ?? "").trim();
-                                if (content.length < 8) {
-                                  toast.error("Bitte gib mindestens 8 Zeichen für den Nachrichtenverlauf ein.");
-                                  return;
-                                }
-                                postSwarmMessageMutation.mutate({
-                                  swarmId: swarm.id,
-                                  communicationLinkId: link.id,
-                                  senderAgentId: link.fromAgentId,
-                                  content,
-                                  kind: link.channel.includes("approval") ? "approval" : link.channel.includes("brief") ? "evidence" : "status",
-                                });
-                              }}
-                            >
-                              {postSwarmMessageMutation.isPending ? "Nachricht wird protokolliert …" : "Nachricht protokollieren"}
-                            </Button>
-                          </div>
-                        </div>
+                          <SwarmHistoryPanel
+                            key={link.id}
+                            link={link}
+                            filter={filter}
+                            draft={swarmMessageDrafts[link.id] ?? ""}
+                            highlighted={(swarmReportingSelection[swarm.id] ?? null) === link.id}
+                            timeAgo={timeAgo}
+                            isSubmitting={postSwarmMessageMutation.isPending}
+                            onFilterChange={next => setSwarmHistoryFilters(current => ({ ...current, [link.id]: next }))}
+                            onDraftChange={value => setSwarmMessageDrafts(current => ({ ...current, [link.id]: value }))}
+                            onSubmit={() => {
+                              const content = (swarmMessageDrafts[link.id] ?? "").trim();
+                              if (content.length < 8) {
+                                toast.error("Bitte gib mindestens 8 Zeichen für den Nachrichtenverlauf ein.");
+                                return;
+                              }
+                              postSwarmMessageMutation.mutate({
+                                swarmId: swarm.id,
+                                communicationLinkId: link.id,
+                                senderAgentId: link.fromAgentId,
+                                content,
+                                kind: link.channel.includes("approval") ? "approval" : link.channel.includes("brief") ? "evidence" : "status",
+                              });
+                            }}
+                          />
                         );
                       })}
                     </div>
