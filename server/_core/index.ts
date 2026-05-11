@@ -6,6 +6,7 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
+import { runDueSwarmReportSubscriptions } from "../db";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 
@@ -36,6 +37,28 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   registerStorageProxy(app);
   registerOAuthRoutes(app);
+  app.post("/api/scheduled/governance-reports", async (req, res) => {
+    const ctx = await createContext({ req, res, info: undefined as never });
+    if (!ctx.user || (ctx.user.role !== "user" && ctx.user.role !== "admin")) {
+      res.status(401).json({ ok: false, error: "Nicht authentifiziert." });
+      return;
+    }
+
+    try {
+      const reportState = await runDueSwarmReportSubscriptions();
+      res.json({
+        ok: true,
+        exportsCount: reportState.exports.length,
+        approvalsCount: reportState.approvals.length,
+        subscriptionsCount: reportState.subscriptions.length,
+      });
+    } catch (error) {
+      res.status(500).json({
+        ok: false,
+        error: error instanceof Error ? error.message : "Zeitbasierter Governance-Report-Lauf fehlgeschlagen.",
+      });
+    }
+  });
   // tRPC API
   app.use(
     "/api/trpc",

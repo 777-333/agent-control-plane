@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { SwarmHistoryPanel } from "@/components/SwarmHistoryPanel";
@@ -349,6 +350,7 @@ export function DashboardOverviewPage() {
 
 export function AgentsPage() {
   const utils = trpc.useUtils();
+  const { user } = useAuth();
   const { data, isLoading, error } = useSnapshot();
   const [form, setForm] = useCreateAgentForm();
   const [editingAgentId, setEditingAgentId] = useState<number | null>(null);
@@ -495,14 +497,59 @@ export function AgentsPage() {
   });
   const postSwarmMessageMutation = trpc.agents.postSwarmMessage.useMutation({
     onSuccess: async result => {
-      setSwarmMessageDrafts(current => ({ ...current, [result.id]: "" }));
       toast.success("Nachricht im Kommunikationspfad protokolliert");
       await utils.controlPlane.snapshot.invalidate();
+      setSwarmMessageDrafts({});
     },
     onError: error => {
       toast.error(error.message || "Nachricht konnte nicht protokolliert werden.");
     },
   });
+  const requestReportDownloadMutation = trpc.swarmReports.requestDownload.useMutation({
+    onSuccess: async () => {
+      await utils.controlPlane.snapshot.invalidate();
+    },
+    onError: error => {
+      toast.error(error.message || "Report-Download konnte nicht angefordert werden.");
+    },
+  });
+  const resolveReportApprovalMutation = trpc.swarmReports.resolveDownloadApproval.useMutation({
+    onSuccess: async result => {
+      toast.success(result.requestStatus === "approved" ? "Download-Freigabe erteilt" : "Download-Antrag abgelehnt");
+      await utils.controlPlane.snapshot.invalidate();
+    },
+    onError: error => {
+      toast.error(error.message || "Download-Freigabe konnte nicht aktualisiert werden.");
+    },
+  });
+  const createReportSubscriptionMutation = trpc.swarmReports.createSubscription.useMutation({
+    onSuccess: async () => {
+      toast.success("Governance-Report-Abo gespeichert");
+      await utils.controlPlane.snapshot.invalidate();
+    },
+    onError: error => {
+      toast.error(error.message || "Governance-Report-Abo konnte nicht gespeichert werden.");
+    },
+  });
+  const createAutonomyRunMutation = trpc.agents.createAutonomyRun.useMutation({
+    onSuccess: async () => {
+      toast.success("Autonomer Schwarmauftrag angelegt");
+      await utils.controlPlane.snapshot.invalidate();
+    },
+    onError: error => {
+      toast.error(error.message || "Autonomer Schwarmauftrag konnte nicht angelegt werden.");
+    },
+  });
+  const controlAutonomyRunMutation = trpc.agents.controlAutonomyRun.useMutation({
+    onSuccess: async result => {
+      toast.success(`Autonomer Lauf ${result.status}`);
+      await utils.controlPlane.snapshot.invalidate();
+    },
+    onError: error => {
+      toast.error(error.message || "Autonomer Schwarmauftrag konnte nicht aktualisiert werden.");
+    },
+  });
+
 
   if (isLoading) return <LoadingState title="Agenten-Verwaltung" description="Einzelagenten und Agentenschwärme werden geladen." />;
   if (error || !data) return <ErrorState />;
@@ -564,6 +611,10 @@ export function AgentsPage() {
             {data.agentSwarms.map(swarm => {
               const members = data.agents.filter(agent => swarm.memberAgentIds.includes(agent.id));
               const { messageWindowCount, approvalMessages, overdueLinks, escalatedLinks, averageResponseMinutes } = getSwarmReportingStats(swarm);
+              const swarmReportExports = (data.swarmReportExports ?? []).filter((item: (typeof data.swarmReportExports)[number]) => item.swarmId === swarm.id);
+              const swarmDownloadApprovals = (data.swarmReportDownloadApprovals ?? []).filter((item: (typeof data.swarmReportDownloadApprovals)[number]) => item.swarmId === swarm.id);
+              const swarmReportSubscriptions = (data.swarmReportSubscriptions ?? []).filter((item: (typeof data.swarmReportSubscriptions)[number]) => item.swarmId === swarm.id);
+              const swarmAutonomyRuns = (((data as typeof data & { autonomousSwarmRuns?: Array<{ swarmId: number }> }).autonomousSwarmRuns ?? []) as Array<any>).filter(item => item.swarmId === swarm.id);
               return (
                 <div key={swarm.id} className="rounded-[24px] border border-indigo-200/70 bg-indigo-50/70 px-5 py-5 shadow-sm">
                   <div className="flex items-start justify-between gap-3">
@@ -600,11 +651,52 @@ export function AgentsPage() {
                     swarm={swarm}
                     selectedMetric={swarmReportingMetric[swarm.id] ?? "messages"}
                     selectedLinkId={swarmReportingSelection[swarm.id] ?? null}
+                    currentUserRole={user?.role === "admin" ? "admin" : "user"}
+                    exportHistory={swarmReportExports}
+                    downloadApprovals={swarmDownloadApprovals}
+                    subscriptions={swarmReportSubscriptions}
+                    autonomyRuns={swarmAutonomyRuns}
+                    timeAgo={timeAgo}
+                    isRequestPending={requestReportDownloadMutation.isPending}
+                    isApprovalPending={resolveReportApprovalMutation.isPending}
+                    isSubscriptionPending={createReportSubscriptionMutation.isPending}
+                    isAutonomyRunPending={createAutonomyRunMutation.isPending}
+                    isAutonomyActionPending={controlAutonomyRunMutation.isPending}
                     onSelectMetric={metric => {
                       setSwarmReportingMetric(current => ({ ...current, [swarm.id]: metric }));
                       setSwarmReportingSelection(current => ({ ...current, [swarm.id]: null }));
                     }}
                     onSelectLink={linkId => setSwarmReportingSelection(current => ({ ...current, [swarm.id]: linkId }))}
+                    onRequestDownload={async ({ format, reason }) => {
+                      return requestReportDownloadMutation.mutateAsync({ swarmId: swarm.id, format, reason });
+                    }}
+                    onResolveDownloadApproval={async ({ approvalId, decision }) => {
+                      await resolveReportApprovalMutation.mutateAsync({ approvalId, decision });
+                    }}
+                    onCreateSubscription={async ({ cadence, format, recipientRoleLabel, startImmediately }) => {
+                      await createReportSubscriptionMutation.mutateAsync({
+                        swarmId: swarm.id,
+                        cadence,
+                        format,
+                        recipientRoleLabel,
+                        startImmediately,
+                      });
+                    }}
+                    onCreateAutonomyRun={async ({ objective, context, priority }) => {
+                      await createAutonomyRunMutation.mutateAsync({
+                        swarmId: swarm.id,
+                        objective,
+                        context,
+                        priority,
+                      });
+                    }}
+                    onControlAutonomyRun={async ({ runId, action }) => {
+                      await controlAutonomyRunMutation.mutateAsync({
+                        swarmId: swarm.id,
+                        runId,
+                        action,
+                      });
+                    }}
                   />
                   <div className="mt-4 rounded-2xl border border-white/70 bg-white/90 p-4">
                     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Kommunikationspfade</p>

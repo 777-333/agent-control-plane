@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
-import { swarmMessages } from "../drizzle/schema";
+import { swarmMessages, swarmReportSubscriptions } from "../drizzle/schema";
 import type { TrpcContext } from "./_core/context";
 import { getDb } from "./db";
 import { resetCustomPrivacyRules } from "./privacy";
@@ -8,7 +8,7 @@ import { appRouter } from "./routers";
 
 type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
 
-function createAuthContext(): TrpcContext {
+function createAuthContext(overrides: Partial<AuthenticatedUser> = {}): TrpcContext {
   const user: AuthenticatedUser = {
     id: 1,
     openId: "sample-user",
@@ -19,6 +19,7 @@ function createAuthContext(): TrpcContext {
     createdAt: new Date(),
     updatedAt: new Date(),
     lastSignedIn: new Date(),
+    ...overrides,
   };
 
   return {
@@ -843,5 +844,289 @@ describe("control plane router", () => {
     const affectedAgent = snapshot.agents.find(agent => agent.id === 2);
     expect(affectedAgent?.status).toBe("paused");
     expect(snapshot.guardrails.some(item => item.thresholdLabel === "Daily budget > 120 USD")).toBe(true);
+  });
+
+  it("includes server-side swarm export history, approval requests and subscriptions in the control-plane snapshot", async () => {
+    const adminCaller = appRouter.createCaller(createAuthContext({ name: "Ops Console", email: "ops@example.com", role: "admin" }));
+    const userCaller = appRouter.createCaller(createAuthContext({ id: 6, name: "Snapshot Analyst", email: "snapshot@example.com", role: "user", openId: "snapshot-user" }));
+    const swarm = (await adminCaller.controlPlane.snapshot()).agentSwarms[0]!;
+
+    await userCaller.swarmReports.requestDownload({
+      swarmId: swarm.id,
+      format: "csv",
+      reason: "Snapshot-Verifikation für sensible Governance-Daten.",
+    });
+
+    await adminCaller.swarmReports.createSubscription({
+      swarmId: swarm.id,
+      cadence: "daily",
+      format: "pdf",
+      recipientRoleLabel: "Head of Operations",
+      startImmediately: true,
+    });
+
+    const snapshot = await adminCaller.controlPlane.snapshot();
+
+    expect(snapshot.swarmReportExports.length).toBeGreaterThan(0);
+    expect(snapshot.swarmReportDownloadApprovals.length).toBeGreaterThan(0);
+    expect(snapshot.swarmReportSubscriptions.length).toBeGreaterThan(0);
+    expect(snapshot.swarmReportExports.some(item => item.swarmId === swarm.id)).toBe(true);
+    expect(snapshot.swarmReportDownloadApprovals.some(item => item.swarmId === swarm.id && item.requestStatus === "pending")).toBe(true);
+    expect(snapshot.swarmReportSubscriptions.some(item => item.swarmId === swarm.id && item.cadence === "daily")).toBe(true);
+  });
+
+  it("requires admin approval for sensitive swarm report downloads and records the export after release", async () => {
+    const adminCaller = appRouter.createCaller(createAuthContext({ name: "Ops Console", email: "ops@example.com", role: "admin" }));
+    const userCaller = appRouter.createCaller(createAuthContext({ id: 5, name: "Analyst User", email: "analyst@example.com", role: "user", openId: "analyst-user" }));
+    const swarm = (await adminCaller.controlPlane.snapshot()).agentSwarms[0]!;
+
+    const requested = await userCaller.swarmReports.requestDownload({
+      swarmId: swarm.id,
+      format: "pdf",
+      reason: "Monatliches Governance-Review für den Incident-Swarm.",
+    });
+
+    expect(requested.status).toBe("pending");
+    expect(requested.approval?.requestStatus).toBe("pending");
+
+    const resolved = await adminCaller.swarmReports.resolveDownloadApproval({
+      approvalId: requested.approval!.id,
+      decision: "approved",
+    });
+    expect(resolved.requestStatus).toBe("approved");
+
+    const approvedDownload = await userCaller.swarmReports.requestDownload({
+      swarmId: swarm.id,
+      format: "pdf",
+      reason: "Monatliches Governance-Review für den Incident-Swarm.",
+    });
+
+    expect(approvedDownload.status).toBe("approved");
+    expect(approvedDownload.exportEntry?.format).toBe("pdf");
+
+    const snapshot = await adminCaller.controlPlane.snapshot();
+    expect(snapshot.swarmReportExports.some(item => item.id === approvedDownload.exportEntry?.id)).toBe(true);
+  });
+
+  it("creates immediate governance-report subscriptions and materializes a subscription export in history", async () => {
+    const caller = appRouter.createCaller(createAuthContext({ name: "Ops Console", email: "ops@example.com", role: "admin" }));
+    const swarm = (await caller.controlPlane.snapshot()).agentSwarms[0]!;
+
+    const created = await caller.swarmReports.createSubscription({
+      swarmId: swarm.id,
+      cadence: "daily",
+      format: "csv",
+      recipientRoleLabel: "Head of Operations",
+      startImmediately: true,
+    });
+
+    expect(created.cadence).toBe("daily");
+    expect(created.format).toBe("csv");
+
+    const snapshot = await caller.controlPlane.snapshot();
+    expect(snapshot.swarmReportSubscriptions.some(item => item.id === created.id)).toBe(true);
+    expect(snapshot.swarmReportExports.some(item => item.triggerSource === "subscription" && item.swarmId === swarm.id)).toBe(true);
+  });
+
+  it("processes due governance-report subscriptions on explicit scheduled execution even without startImmediately", async () => {
+    const adminCaller = appRouter.createCaller(createAuthContext({ name: "Ops Console", email: "ops@example.com", role: "admin" }));
+    const userCaller = appRouter.createCaller(createAuthContext({ id: 7, name: "Ops User", email: "ops-user@example.com", role: "user", openId: "ops-user" }));
+    const swarm = (await adminCaller.controlPlane.snapshot()).agentSwarms[0]!;
+
+    const created = await adminCaller.swarmReports.createSubscription({
+      swarmId: swarm.id,
+      cadence: "weekly",
+      format: "pdf",
+      recipientRoleLabel: "Governance Board",
+      startImmediately: false,
+    });
+
+    const db = await getDb();
+    await db
+      .update(swarmReportSubscriptions)
+      .set({ nextRunAt: new Date(Date.now() - 60_000) })
+      .where(eq(swarmReportSubscriptions.id, created.id));
+
+    const processed = await adminCaller.swarmReports.processDueSubscriptions();
+    expect(processed.exports.some(item => item.swarmId === swarm.id && item.triggerSource === "subscription")).toBe(true);
+
+    await expect(userCaller.swarmReports.processDueSubscriptions()).rejects.toThrow("Nur Admins dürfen fällige Governance-Report-Abos ausführen.");
+  });
+
+  it("creates autonomous swarm runs with delegated and feedback events across multiple members", async () => {
+    const caller = appRouter.createCaller(createAuthContext({ name: "Ops Console", email: "ops@example.com", role: "admin" }));
+    const swarm = (await caller.controlPlane.snapshot()).agentSwarms[0]!;
+
+    const run = await caller.agents.createAutonomyRun({
+      swarmId: swarm.id,
+      objective: "Koordiniere einen mehrstufigen Incident-Review mit Analyse, Kundenkommunikation und Governance-Abschluss.",
+      context: "Die Teilaufgaben sollen entlang der vorhandenen Schwarmrollen verteilt und rückgekoppelt werden.",
+      priority: "urgent",
+    });
+
+    expect(run.status).toBe("completed");
+    expect(run.steps.length).toBeGreaterThan(1);
+    expect(new Set(run.steps.map(step => step.assignedAgentId)).size).toBeGreaterThan(1);
+    expect(run.events.some(event => event.eventType === "delegated")).toBe(true);
+    expect(run.events.some(event => event.eventType === "feedback")).toBe(true);
+    expect(run.events.some(event => event.eventType === "completed")).toBe(true);
+    expect(run.steps.every(step => step.status === "completed" && step.output)).toBe(true);
+
+    const firstStep = run.steps.find(step => step.sequence === 1)!;
+    const secondStep = run.steps.find(step => step.sequence === 2)!;
+    const secondDelegation = run.events.find(event => event.eventType === "delegated" && event.stepId === secondStep.id);
+
+    expect(secondStep.instructions).toContain(`Vorheriges Feedback aus Schritt 1 von ${firstStep.assignedAgentName}: ${firstStep.output}`);
+    expect(secondDelegation?.detail).toContain(`Vorheriges Feedback aus Schritt 1 von ${firstStep.assignedAgentName}: ${firstStep.output}`);
+  });
+
+  it("exposes autonomous swarm runs in the control-plane snapshot with steps and event history", async () => {
+    const caller = appRouter.createCaller(createAuthContext({ name: "Ops Console", email: "ops@example.com", role: "admin" }));
+    const swarm = (await caller.controlPlane.snapshot()).agentSwarms[0]!;
+
+    const created = await caller.agents.createAutonomyRun({
+      swarmId: swarm.id,
+      objective: "Bereite einen koordinierten Governance-Lauf mit Statusrückmeldungen und Abschlusszusammenfassung vor.",
+      context: "Der Snapshot soll echte Laufdaten mit Schritten und Ereignissen enthalten.",
+      priority: "standard",
+    });
+
+    const snapshot = await caller.controlPlane.snapshot();
+    const run = snapshot.swarmAutonomyRuns.find(item => item.id === created.id);
+
+    expect(run).toBeDefined();
+    expect(run?.steps.length).toBeGreaterThan(0);
+    expect(run?.events.some(event => event.eventType === "delegated")).toBe(true);
+    expect(run?.events.some(event => event.eventType === "feedback")).toBe(true);
+  });
+
+  it("blocks sensitive autonomous runs for users, allows admin approval and supports pause, resume and cancel controls", async () => {
+    const adminCaller = appRouter.createCaller(createAuthContext({ name: "Ops Console", email: "ops@example.com", role: "admin" }));
+    const userCaller = appRouter.createCaller(createAuthContext({ id: 9, name: "Operations Analyst", email: "analyst@example.com", role: "user", openId: "ops-analyst" }));
+    const swarm = (await adminCaller.controlPlane.snapshot()).agentSwarms[0]!;
+
+    const awaitingApproval = await userCaller.agents.createAutonomyRun({
+      swarmId: swarm.id,
+      objective: "Deploy production payment workflow mit sensiblen Zahlungsdaten und ERP-Override koordinieren.",
+      context: "Dieser Lauf soll wegen sensitiver Ziele zunächst eine Governance-Freigabe verlangen.",
+      priority: "critical",
+    });
+
+    expect(awaitingApproval.status).toBe("blocked");
+    expect(awaitingApproval.governanceStatus).toBe("blocked");
+
+    await expect(userCaller.agents.controlAutonomyRun({
+      swarmId: swarm.id,
+      runId: awaitingApproval.id,
+      action: "approve",
+    })).rejects.toThrow("Nur Admins dürfen autonome Schwarmaufträge freigeben.");
+
+    const approved = await adminCaller.agents.controlAutonomyRun({
+      swarmId: swarm.id,
+      runId: awaitingApproval.id,
+      action: "approve",
+    });
+
+    expect(approved.status).toBe("completed");
+    expect(approved.events.some(event => event.eventType === "resumed")).toBe(true);
+
+    const controllable = await userCaller.agents.createAutonomyRun({
+      swarmId: swarm.id,
+      objective: "Deploy production payment workflow mit zusätzlichem ERP-Override und sensiblen Zahlungsdaten prüfen.",
+      context: "Dieser zweite Lauf bleibt zunächst in Governance-Wartestellung, damit Pause, Fortsetzen und Abbruch separat geprüft werden können.",
+      priority: "critical",
+    });
+
+    const paused = await adminCaller.agents.controlAutonomyRun({
+      swarmId: swarm.id,
+      runId: controllable.id,
+      action: "pause",
+    });
+    expect(paused.status).toBe("paused");
+    expect(paused.events.some(event => event.eventType === "paused")).toBe(true);
+
+    const resumed = await adminCaller.agents.controlAutonomyRun({
+      swarmId: swarm.id,
+      runId: controllable.id,
+      action: "resume",
+    });
+    expect(["planned", "running", "completed"]).toContain(resumed.status);
+    expect(resumed.events.some(event => event.eventType === "resumed")).toBe(true);
+
+    const controllableAfterResume = await userCaller.agents.createAutonomyRun({
+      swarmId: swarm.id,
+      objective: "Deploy production payout rollback mit sensiblen Finanzdaten zur späteren Governance-Stornierung vorbereiten.",
+      context: "Dieser dritte Lauf dient ausschließlich dem Nachweis einer aktiven Cancel-Aktion.",
+      priority: "critical",
+    });
+
+    const cancelled = await adminCaller.agents.controlAutonomyRun({
+      swarmId: swarm.id,
+      runId: controllableAfterResume.id,
+      action: "cancel",
+    });
+    expect(cancelled.status).toBe("cancelled");
+    expect(cancelled.events.some(event => event.eventType === "cancelled")).toBe(true);
+  });
+
+  it("creates an awaiting-approval autonomy run on swarms with approval-required governance and releases it via admin approval", async () => {
+    const adminCaller = appRouter.createCaller(createAuthContext({ name: "Ops Console", email: "ops@example.com", role: "admin" }));
+    const userCaller = appRouter.createCaller(createAuthContext({ id: 10, name: "Approval Analyst", email: "approval@example.com", role: "user", openId: "approval-user" }));
+
+    const approvalSwarm = await adminCaller.agents.createSwarm({
+      name: `Autonomy Approval Swarm ${Date.now()}`,
+      mission: "Koordiniert sensible, aber freigabefähige Governance-Läufe zwischen Planung, Ausführung und Abschluss.",
+      topology: "pipeline",
+      coordinationMode: "planner_executor",
+      team: "Governance Operations",
+      owner: "Ops Console",
+      environment: "staging",
+      governance: {
+        policyMode: "approval_required",
+        approvalRequired: true,
+        approverRole: "governance_admin",
+        escalationTarget: "VP Governance",
+        slaMinutes: 30,
+        escalationAfterMinutes: 60,
+        reportingWindowHours: 12,
+      },
+      members: [
+        {
+          name: "Plan Coordinator",
+          role: "planner",
+          description: "Leitet sensible Governance-Läufe an und strukturiert die Delegation.",
+          model: "gpt-4.1",
+          tools: ["Policy Registry", "Audit Log"],
+        },
+        {
+          name: "Execution Analyst",
+          role: "executor",
+          description: "Führt freigegebene Teilaufgaben aus und meldet belastbare Zwischenstände zurück.",
+          model: "gpt-4.1-mini",
+          tools: ["Runbooks", "Evidence Store"],
+        },
+      ],
+    });
+
+    const awaitingApproval = await userCaller.agents.createAutonomyRun({
+      swarmId: approvalSwarm.id,
+      objective: "Deploy production payment workflow mit sensiblen Zahlungsdaten im Freigabemodus koordinieren.",
+      context: "Dieser Lauf soll wegen approval_required zuerst im Freigabestatus verbleiben.",
+      priority: "critical",
+    });
+
+    expect(awaitingApproval.status).toBe("awaiting_approval");
+    expect(awaitingApproval.governanceStatus).toBe("approval_required");
+    expect(awaitingApproval.steps.every(step => step.status === "awaiting_input")).toBe(true);
+
+    const released = await adminCaller.agents.controlAutonomyRun({
+      swarmId: approvalSwarm.id,
+      runId: awaitingApproval.id,
+      action: "approve",
+    });
+
+    expect(released.status).toBe("completed");
+    expect(released.governanceStatus).toBe("clear");
+    expect(released.events.some(event => event.eventType === "resumed")).toBe(true);
   });
 });

@@ -3,6 +3,20 @@ import { drizzle } from "drizzle-orm/mysql2";
 import { InsertUser, approvalChains, approvalStages, swarmMessages, users } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 import {
+  applySwarmAutonomyAction as applySwarmAutonomyActionEntry,
+  createSwarmAutonomyRun as createSwarmAutonomyRunEntry,
+  listSwarmAutonomyRuns,
+  type SwarmAutonomyAction,
+  type SwarmAutonomyPriority,
+} from "./swarmAutonomy";
+import {
+  createSwarmReportSubscription as createSwarmReportSubscriptionEntry,
+  listSwarmReportState,
+  processDueSwarmReportSubscriptions,
+  requestSwarmReportDownload as requestSwarmReportDownloadEntry,
+  resolveSwarmReportDownloadApproval as resolveSwarmReportDownloadApprovalEntry,
+} from "./swarmReports";
+import {
   combinePrivacySanitizationResults,
   createCustomPrivacyRule,
   deleteCustomPrivacyRule,
@@ -2487,11 +2501,150 @@ export async function removePrivacyRule(input: { id: number }) {
   return deleteCustomPrivacyRule(input.id);
 }
 
+export async function listSwarmReportExports() {
+  const db = await getDb();
+  const swarms = await listAgentSwarms();
+  return (await listSwarmReportState(db, swarms)).exports;
+}
+
+export async function listSwarmReportDownloadApprovals() {
+  const db = await getDb();
+  const swarms = await listAgentSwarms();
+  return (await listSwarmReportState(db, swarms)).approvals;
+}
+
+export async function listSwarmReportSubscriptions() {
+  const db = await getDb();
+  const swarms = await listAgentSwarms();
+  return (await listSwarmReportState(db, swarms)).subscriptions;
+}
+
+export async function requestSwarmReportDownload(input: {
+  swarmId: number;
+  format: "csv" | "pdf";
+  reason: string;
+  requestedByUserId: number | null;
+  requestedByLabel: string;
+  requestedBySystemRole: "user" | "admin";
+}) {
+  const db = await getDb();
+  const swarms = await listAgentSwarms();
+  return requestSwarmReportDownloadEntry({ db, swarms, ...input });
+}
+
+export async function resolveSwarmReportDownloadApproval(input: {
+  approvalId: number;
+  decision: "approved" | "rejected";
+  resolvedByUserId: number | null;
+  resolvedByLabel: string;
+  resolvedBySystemRole: "user" | "admin";
+}) {
+  const db = await getDb();
+  return resolveSwarmReportDownloadApprovalEntry({ db, ...input });
+}
+
+export async function createSwarmReportSubscription(input: {
+  swarmId: number;
+  cadence: "daily" | "weekly" | "monthly";
+  format: "csv" | "pdf";
+  recipientRoleLabel: string;
+  createdByUserId: number | null;
+  createdByLabel: string;
+  startImmediately: boolean;
+}) {
+  const db = await getDb();
+  const swarms = await listAgentSwarms();
+  return createSwarmReportSubscriptionEntry({ db, swarms, ...input });
+}
+
+export async function runDueSwarmReportSubscriptions() {
+  const db = await getDb();
+  const swarms = await listAgentSwarms();
+  await processDueSwarmReportSubscriptions(db, swarms);
+  return listSwarmReportState(db, swarms);
+}
+
+async function getSwarmAutonomyContext(swarmId: number) {
+  const swarms = await listAgentSwarms();
+  const swarm = swarms.find(item => item.id === swarmId);
+  if (!swarm) {
+    throw new Error(`Agenten-Schwarm ${swarmId} wurde nicht gefunden.`);
+  }
+
+  const members = (await listAgents())
+    .filter(agent => swarm.memberAgentIds.includes(agent.id))
+    .map(agent => ({
+      id: agent.id,
+      name: agent.name,
+      swarmRole: agent.swarmRole ?? null,
+      tools: agent.tools,
+      model: agent.model,
+    }));
+
+  return { swarm, members, swarms };
+}
+
+export async function listAutonomousSwarmRuns() {
+  const swarms = await listAgentSwarms();
+  return listSwarmAutonomyRuns(await getDb(), swarms.map(swarm => swarm.id));
+}
+
+export async function createAutonomousSwarmRun(input: {
+  swarmId: number;
+  objective: string;
+  context?: string;
+  priority?: SwarmAutonomyPriority;
+  requestedByUserId: number | null;
+  requestedByLabel: string;
+  requestedByRole: "user" | "admin" | "system";
+}) {
+  const db = await getDb();
+  const { swarm, members } = await getSwarmAutonomyContext(input.swarmId);
+  return createSwarmAutonomyRunEntry({
+    db,
+    swarm,
+    members,
+    objective: input.objective,
+    context: input.context,
+    priority: input.priority,
+    requestedByUserId: input.requestedByUserId,
+    requestedByLabel: input.requestedByLabel,
+    requestedByRole: input.requestedByRole,
+  });
+}
+
+export async function controlAutonomousSwarmRun(input: {
+  swarmId: number;
+  runId: number;
+  action: SwarmAutonomyAction;
+  actorLabel: string;
+  actorRole: "user" | "admin" | "system";
+}) {
+  const db = await getDb();
+  const { swarm } = await getSwarmAutonomyContext(input.swarmId);
+  return applySwarmAutonomyActionEntry({
+    db,
+    swarm,
+    runId: input.runId,
+    action: input.action,
+    actorLabel: input.actorLabel,
+    actorRole: input.actorRole,
+  });
+}
+
 export async function getControlPlaneSnapshot() {
+  const db = await getDb();
+  const swarms = await listAgentSwarms();
+  const reportState = await listSwarmReportState(db, swarms);
+  const swarmAutonomyRuns = await listSwarmAutonomyRuns(db, swarms.map(swarm => swarm.id));
   return {
     dashboard: await getDashboardOverview(),
     agents: await listAgents(),
-    agentSwarms: await listAgentSwarms(),
+    agentSwarms: swarms,
+    swarmReportExports: reportState.exports,
+    swarmReportDownloadApprovals: reportState.approvals,
+    swarmReportSubscriptions: reportState.subscriptions,
+    swarmAutonomyRuns,
     policies: await listPolicies(),
     approvalChains: await listApprovalChains(),
     approvals: await listApprovals(),

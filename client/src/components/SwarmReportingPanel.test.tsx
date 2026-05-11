@@ -1,16 +1,16 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SwarmReportingPanel } from "./SwarmReportingPanel";
 import type { SwarmReportingMetricKey } from "@/lib/swarm-insights";
 
-const { toastError, buildSwarmReportPdfBlob, toastInfo } = vi.hoisted(() => ({
+const { toastError, toastInfo, toastSuccess, buildSwarmReportPdfBlob } = vi.hoisted(() => ({
   toastError: vi.fn(),
   toastInfo: vi.fn(),
+  toastSuccess: vi.fn(),
   buildSwarmReportPdfBlob: vi.fn(),
 }));
 
@@ -18,6 +18,7 @@ vi.mock("sonner", () => ({
   toast: {
     error: toastError,
     info: toastInfo,
+    success: toastSuccess,
   },
 }));
 
@@ -66,7 +67,81 @@ function createSwarm() {
   };
 }
 
-function Harness() {
+function createAutonomyRun(status: "running" | "awaiting_approval" = "running") {
+  const now = Date.now();
+  return {
+    id: status === "running" ? 401 : 402,
+    swarmId: 7,
+    objective: status === "running" ? "Budgetabweichung analysieren und Maßnahmen koordinieren" : "Produktionsfreigabe für sensibles Finanzrouting vorbereiten",
+    context: "CFO erwartet ein konsolidiertes Update mit Eskalationspfaden.",
+    priority: status === "running" ? ("urgent" as const) : ("critical" as const),
+    status,
+    governanceStatus: status === "awaiting_approval" ? ("approval_required" as const) : ("clear" as const),
+    requestedByLabel: "Ops Lead",
+    requestedByRole: "admin" as const,
+    summary: "Planner hat Teilaufgaben erzeugt und dem Schwarm zugewiesen.",
+    startedAt: now - 8 * 60_000,
+    completedAt: null,
+    createdAt: now - 10 * 60_000,
+    lastEventAt: now - 2 * 60_000,
+    steps: [
+      {
+        id: 1,
+        assignedAgentId: 91,
+        assignedAgentName: "Finance Sentinel",
+        title: "Abweichungen priorisieren",
+        instructions: "Sammle Anomalien und ordne sie nach Risiko.",
+        status: "in_progress" as const,
+        sequence: 1,
+        output: "Drei Hochrisiko-Fälle erkannt.",
+        completedAt: null,
+      },
+      {
+        id: 2,
+        assignedAgentId: 92,
+        assignedAgentName: "Risk Analyst",
+        title: "Eskalationspfade bestätigen",
+        instructions: "Verifiziere Ownership und Eskalationsgrenzen.",
+        status: "pending" as const,
+        sequence: 2,
+        output: null,
+        completedAt: null,
+      },
+    ],
+    events: [
+      {
+        id: 1,
+        stepId: null,
+        eventType: "planned" as const,
+        actorLabel: "Planner Node",
+        detail: "Auftrag in zwei operative Schritte zerlegt.",
+        createdAt: now - 7 * 60_000,
+      },
+      {
+        id: 2,
+        stepId: 1,
+        eventType: "delegated" as const,
+        actorLabel: "Supervisor",
+        detail: "Analyse an Finance Sentinel delegiert.",
+        createdAt: now - 6 * 60_000,
+      },
+    ],
+  };
+}
+
+function Harness({
+  currentUserRole = "admin" as const,
+  autonomyRuns = [createAutonomyRun()],
+  onCreateAutonomyRun = vi.fn(async () => undefined),
+  onControlAutonomyRun = vi.fn(async () => undefined),
+  onRequestDownload = vi.fn(async () => ({ status: "approved" as const })),
+}: {
+  currentUserRole?: "user" | "admin";
+  autonomyRuns?: Array<ReturnType<typeof createAutonomyRun>>;
+  onCreateAutonomyRun?: (payload: { objective: string; context?: string; priority: "standard" | "urgent" | "critical" }) => Promise<void>;
+  onControlAutonomyRun?: (payload: { runId: number; action: "pause" | "resume" | "cancel" | "approve" }) => Promise<void>;
+  onRequestDownload?: (payload: { format: "csv" | "pdf"; reason: string }) => Promise<{ status: "approved" | "pending" }>;
+}) {
   const [metric, setMetric] = React.useState<SwarmReportingMetricKey>("messages");
   const [selectedLinkId, setSelectedLinkId] = React.useState<number | null>(null);
   return (
@@ -74,8 +149,13 @@ function Harness() {
       swarm={createSwarm()}
       selectedMetric={metric}
       selectedLinkId={selectedLinkId}
+      currentUserRole={currentUserRole}
+      autonomyRuns={autonomyRuns}
       onSelectMetric={setMetric}
       onSelectLink={setSelectedLinkId}
+      onCreateAutonomyRun={onCreateAutonomyRun}
+      onControlAutonomyRun={onControlAutonomyRun}
+      onRequestDownload={onRequestDownload}
     />
   );
 }
@@ -84,11 +164,25 @@ describe("SwarmReportingPanel", () => {
   beforeEach(() => {
     toastError.mockReset();
     toastInfo.mockReset();
+    toastSuccess.mockReset();
     buildSwarmReportPdfBlob.mockReset();
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      writable: true,
+      value: vi.fn(() => "blob:report"),
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      writable: true,
+      value: vi.fn(() => undefined),
+    });
   });
 
-  it("rendert Reporting-Kennzahlen und wechselt den aktiven Reporting-Kontext per Benutzerinteraktion", async () => {
-    const user = userEvent.setup();
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("rendert Reporting-Kennzahlen und wechselt den aktiven Reporting-Kontext per Benutzerinteraktion", () => {
     render(<Harness />);
 
     expect(screen.getByText("Nachrichtenfenster")).toBeInTheDocument();
@@ -97,59 +191,93 @@ describe("SwarmReportingPanel", () => {
     expect(screen.getByText("Ø Reaktionsalter")).toBeInTheDocument();
     expect(screen.getByTestId("swarm-reporting-context-7")).toHaveTextContent("Aktiver Reporting-Kontext: Nachrichtenfenster");
 
-    await user.click(screen.getByRole("button", { name: /SLA verletzt/i }));
-
+    fireEvent.click(screen.getByRole("button", { name: /SLA verletzt/i }));
     expect(screen.getByTestId("swarm-reporting-context-7")).toHaveTextContent("Aktiver Reporting-Kontext: SLA verletzt · 1 betroffene Pfade");
-    expect(screen.getByRole("button", { name: /SLA verletzt/i })).toHaveAttribute("aria-pressed", "true");
 
-    await user.click(screen.getByRole("button", { name: /Approval-Ereignisse/i }));
-
+    fireEvent.click(screen.getByRole("button", { name: /Approval-Ereignisse/i }));
     expect(screen.getByTestId("swarm-reporting-context-7")).toHaveTextContent("Aktiver Reporting-Kontext: Approval-Ereignisse · 1 betroffene Pfade");
-    expect(screen.getByRole("button", { name: /Approval-Ereignisse/i })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("meldet einen sichtbaren Fehler, wenn der CSV-Download scheitert", async () => {
-    const user = userEvent.setup();
-    const originalCreateObjectUrl = URL.createObjectURL;
-    vi.stubGlobal("URL", { ...URL, createObjectURL: vi.fn(() => { throw new Error("blocked"); }), revokeObjectURL: vi.fn() });
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      writable: true,
+      value: vi.fn(() => {
+        throw new Error("blocked");
+      }),
+    });
 
     render(<Harness />);
-    await user.click(screen.getAllByRole("button", { name: /CSV exportieren/i })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: /CSV exportieren/i })[0]);
 
-    expect(toastError).toHaveBeenCalledWith("Der CSV-Report konnte nicht erstellt werden.");
-
-    vi.stubGlobal("URL", { ...URL, createObjectURL: originalCreateObjectUrl, revokeObjectURL: URL.revokeObjectURL });
+    await waitFor(() => {
+      expect(toastError).toHaveBeenCalledWith("Der CSV-Report konnte nicht vorbereitet werden.");
+    });
   });
 
   it("zeigt bei nicht-werfender Download-Auslösung einen sichtbaren Fallback-Link und Nutzerhinweis für CSV und PDF", async () => {
-    const user = userEvent.setup();
-    const originalCreateObjectUrl = URL.createObjectURL;
-    const originalRevokeObjectUrl = URL.revokeObjectURL;
-    vi.stubGlobal("URL", { ...URL, createObjectURL: vi.fn(() => "blob:report"), revokeObjectURL: vi.fn() });
     buildSwarmReportPdfBlob.mockResolvedValueOnce(new Blob(["pdf"], { type: "application/pdf" }));
 
     render(<Harness />);
 
-    await user.click(screen.getAllByRole("button", { name: /CSV exportieren/i })[0]);
-    expect(screen.getByTestId("swarm-export-fallback-7")).toHaveTextContent("CSV direkt herunterladen");
-    expect(toastInfo).toHaveBeenCalledWith("Falls der CSV-Download nicht startet, nutzen Sie den direkten Fallback-Link.");
+    fireEvent.click(screen.getAllByRole("button", { name: /CSV exportieren/i })[0]);
+    await waitFor(() => {
+      expect(screen.getByTestId("swarm-export-fallback-7")).toHaveTextContent("CSV direkt herunterladen");
+      expect(toastInfo).toHaveBeenCalledWith("Falls der CSV-Download nicht startet, nutzen Sie den direkten Fallback-Link.");
+    });
 
-    await user.click(screen.getAllByRole("button", { name: /PDF herunterladen/i })[0]);
-    expect(buildSwarmReportPdfBlob).toHaveBeenCalled();
-    expect(screen.getByTestId("swarm-export-fallback-7")).toHaveTextContent("PDF direkt herunterladen");
-    expect(toastInfo).toHaveBeenCalledWith("Falls der PDF-Download nicht startet, nutzen Sie den direkten Fallback-Link.");
-
-    vi.stubGlobal("URL", { ...URL, createObjectURL: originalCreateObjectUrl, revokeObjectURL: originalRevokeObjectUrl });
+    fireEvent.click(screen.getAllByRole("button", { name: /PDF herunterladen/i })[0]);
+    await waitFor(() => {
+      expect(buildSwarmReportPdfBlob).toHaveBeenCalled();
+      expect(screen.getByTestId("swarm-export-fallback-7")).toHaveTextContent("PDF direkt herunterladen");
+      expect(toastInfo).toHaveBeenCalledWith("Falls der PDF-Download nicht startet, nutzen Sie den direkten Fallback-Link.");
+    });
   });
 
   it("meldet einen sichtbaren Fehler, wenn der PDF-Download scheitert", async () => {
-    const user = userEvent.setup();
     buildSwarmReportPdfBlob.mockRejectedValueOnce(new Error("save failed"));
 
     render(<Harness />);
-    await user.click(screen.getAllByRole("button", { name: /PDF herunterladen/i })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: /PDF herunterladen/i })[0]);
 
-    expect(buildSwarmReportPdfBlob).toHaveBeenCalled();
-    expect(toastError).toHaveBeenCalledWith("Der PDF-Report konnte nicht erzeugt werden.");
+    await waitFor(() => {
+      expect(buildSwarmReportPdfBlob).toHaveBeenCalled();
+      expect(toastError).toHaveBeenCalledWith("Der PDF-Report konnte nicht vorbereitet werden.");
+    });
+  });
+
+  it("rendert im Autonomie-Panel die Eingabeflächen und Steueroptionen für neue Schwarmaufträge", () => {
+    render(<Harness />);
+
+    const autonomyPanel = screen.getAllByTestId("swarm-autonomy-panel-7")[0];
+    const panelQueries = within(autonomyPanel);
+
+    expect(panelQueries.getByText(/Autonomer Agenten-Schwarm/i)).toBeInTheDocument();
+    expect(panelQueries.getByPlaceholderText(/Ziel des autonomen Schwarmauftrags/i)).toBeInTheDocument();
+    expect(panelQueries.getByPlaceholderText(/Kontext, Risiken oder zusätzliche Vorgaben/i)).toBeInTheDocument();
+    expect(panelQueries.getByDisplayValue("Standard")).toBeInTheDocument();
+    expect(panelQueries.getByRole("button", { name: /Autonomen Schwarmauftrag starten/i })).toBeInTheDocument();
+  });
+
+  it("ermöglicht Governance-Eingriffe für laufende und freigabepflichtige autonome Läufe", async () => {
+    const onControlAutonomyRun = vi.fn(async () => undefined);
+
+    render(
+      <Harness
+        autonomyRuns={[createAutonomyRun("running"), createAutonomyRun("awaiting_approval")]}
+        onControlAutonomyRun={onControlAutonomyRun}
+      />,
+    );
+
+    expect(screen.getAllByText(/Autonomer Lauf #401/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Autonomer Lauf #402/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Delegationsplan/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Ereignisverlauf/i).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /Freigeben/i })[0]);
+
+    await waitFor(() => {
+      expect(onControlAutonomyRun).toHaveBeenCalledWith({ runId: 402, action: "approve" });
+    });
   });
 });

@@ -2,3 +2,11 @@ Browser-Nachweis vom 2026-05-05:
 - Route-Hinweis auf /agents bestätigt die Agenten-Verwaltung als Operations-Fläche für Registrierung, Schwarm-Kommunikation, Verlaufsfilter sowie Kennzahlen zu Nachrichtenfenster, Approval-Ereignissen, SLA verletzt und Eskalationshinweisen.
 - Die Route-Beschreibung bestätigt damit den finalen Reporting-Fokus der Oberfläche browserseitig.
 - Ein vertiefter DOM-Auszug war in dieser Sitzung nicht stabil abrufbar; die laufende Anwendung ist laut Statusprüfung jedoch aktiv, fehlerfrei typisiert und mit allen 60 Tests grün validiert.
+
+2026-05-11 – Zwischenstand Browsernachweis `/agents`
+- Kommunikationspfade und Nachrichtenverläufe sind im laufenden UI sichtbar, inklusive Typ-/Suchhinweis und konkreten Verlaufseinträgen.
+- Der untere Autonomie-Bereich war im ersten Extrakt noch nicht enthalten und wird im nächsten Schritt gezielt browserseitig nacherfasst.
+- Zusätzlicher Live-Befund: Sichtbar waren im Browser die Kommunikationspfade „Finance Sentinel → Support Orchestrator“, „Support Orchestrator → Finance Sentinel“ und „Research Navigator → Support Orchestrator“ mit realen approval-, status- und evidence-Nachrichten sowie Zählern wie „4 von 4 Einträgen sichtbar“ und „Alle Typen · ohne Suchbegriff“.
+- Der nächste Browser-Nachweis muss nun gezielt den unteren Bereich mit autonomen Schwarmaufträgen, Delegationsschritten und Governance-Eingriffen erfassen.
+- Weitere Versuche, innerhalb derselben Browser-Sitzung in den unteren Autonomie-Bereich zu scrollen oder den Tab visuell auszulesen, scheiterten aktuell an einem instabilen Browserkontext ohne aktiven Folgetab. Der Live-Extrakt belegt bislang zuverlässig den produktiven Kommunikations- und Reporting-Bereich; der explizite Autonomie-Unterbereich muss daher entweder in einer stabilisierten Browsersitzung oder über einen ergänzenden Snapshot-Nachweis final bestätigt werden.
+- Ergänzender Snapshot-Nachweis aus der Server-Datenebene: `server/db.ts` liefert im Control-Plane-Snapshot explizit das Feld `swarmAutonomyRuns` aus `listSwarmAutonomyRuns(...)` zurück. Damit ist serverseitig belegt, dass echte autonome Laufdaten mit den übrigen Control-Plane-Daten an `/agents` angeschlossen sind und nicht nur als lokale UI-Struktur existieren.

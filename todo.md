@@ -99,3 +99,21 @@
 - [x] Explizite Tests für stille CSV-/PDF-Download-Fehlschläge ergänzen, nicht nur für Exceptions
 - [x] Explizite UI-Tests für stille CSV-/PDF-Download-Fehlschläge ergänzen, die Fallback-Link und Nutzerhinweis nach nicht-werfender Download-Auslösung verifizieren
 - [x] Nachweisen, dass der Export-Fallback bei ausbleibendem Auto-Download sichtbar und nutzbar bleibt, statt nur Exception-Pfade zu testen
+- [x] Serverseitige Export-Historien pro Schwarm mit Zeitstempel, Auslöser und Report-Metadaten implementieren
+- [x] Rollenbasierte Freigaben für sensible Report-Downloads mit antragsbasiertem Freigabefluss ergänzen
+- [x] Termin- oder Abo-Mechanismus für automatisch erzeugte Governance-Reports implementieren
+- [x] Echten zeitbasierten Ausführungsmechanismus für Governance-Report-Abos nachweisen und mit Tests absichern, dass fällige Abos auch ohne `startImmediately` automatisch Export-Historieneinträge erzeugen
+- [x] Autonome Schwarmaufträge mit Ziel, Kontext, Zerlegungslogik und Fortschrittsstatus modellieren
+- [x] Serverseitige Orchestrierung ergänzen, die Teilaufgaben auf Schwarmmitglieder verteilt und Rückmeldungen rekursiv verarbeitet
+- [x] Governance- und Freigaberegeln auf autonome Schwarmaufträge anwenden, einschließlich Stop-, Eskalations- und Eingriffsmechanismen
+- [x] Oberfläche für autonome Schwarmaufträge, Delegationsverlauf und manuelle Eingriffe in der Agenten-Verwaltung ergänzen
+- [ ] Test- und Browsernachweise für autonome Schwarmplanung, Delegation und Rückkopplung erstellen
+- [x] Serverseitigen Code- und Testnachweis ergänzen, dass autonome Schwarmaufträge Teilaufgaben tatsächlich an Schwarmmitglieder verteilen und Feedback rekursiv weiterverarbeiten
+- [x] Gezielte Backend-Tests für Governance auf autonomen Schwarmläufen ergänzen, inklusive Eskalation, Blockierung, Freigabe und Stop-Aktionen
+- [ ] Snapshot- und Browsernachweis für autonome Schwarmläufe ergänzen, der echte Laufdaten statt nur UI-Struktur auf `/agents` sichtbar macht
+- [ ] Stabilen Browsernachweis für den unteren Autonomie-Bereich auf `/agents` nachliefern, sobald der Browserkanal wieder deterministisch bis zu den Laufkarten und Governance-Eingriffen extrahiert
+- [x] Separaten Backend-Test für einen echten `awaiting_approval`-Autonomie-Lauf ergänzen, inklusive anschließender Admin-Freigabe
+- [x] Nachweis ergänzen, wie Feedback den weiteren autonomen Schwarm-Lauf beeinflusst oder weiterverarbeitet wird, statt nur als Event protokolliert zu werden
+- [x] Konkrete Servertests für autonome Schwarmläufe ergänzen, die Delegation auf mehrere Mitglieder sowie erzeugte `delegated`- und `feedback`-Events explizit beweisen
+- [x] Autonomie-Servertest ergänzen, der zeigt, dass Feedback den weiteren Lauf nachvollziehbar weiterverarbeitet statt nur einmalig protokolliert zu werden
+- [x] Gezielte Backend-Tests für autonome Governance-Fälle ergänzen: blockierter sensitiver Lauf, `awaiting_approval`, Admin-Freigabe, Pause/Fortsetzen und Stop/Cancel

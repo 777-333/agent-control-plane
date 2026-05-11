@@ -50,6 +50,20 @@
       "when": 1777060024258,
       "tag": "0006_fearless_fallen_one",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "5",
+      "when": 1778183995002,
+      "tag": "0007_whole_smasher",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "5",
+      "when": 1778533541569,
+      "tag": "0008_crazy_warbound",
+      "breakpoints": true
     }
   ]
 }

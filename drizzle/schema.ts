@@ -233,6 +233,105 @@ export const swarmMessages = mysqlTable("swarmMessages", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
+export const swarmReportExports = mysqlTable("swarmReportExports", {
+  id: int("id").autoincrement().primaryKey(),
+  swarmId: int("swarmId").notNull(),
+  format: mysqlEnum("format", ["csv", "pdf"]).notNull(),
+  triggerSource: mysqlEnum("triggerSource", ["manual", "approval", "subscription"]).default("manual").notNull(),
+  triggeredByUserId: int("triggeredByUserId"),
+  triggeredByLabel: varchar("triggeredByLabel", { length: 160 }).notNull(),
+  requesterRole: mysqlEnum("requesterRole", ["user", "admin", "system"]).default("user").notNull(),
+  reportWindowHours: int("reportWindowHours").default(24).notNull(),
+  communicationLinkCount: int("communicationLinkCount").default(0).notNull(),
+  approvalMessageCount: int("approvalMessageCount").default(0).notNull(),
+  overdueLinkCount: int("overdueLinkCount").default(0).notNull(),
+  averageResponseMinutes: int("averageResponseMinutes").default(0).notNull(),
+  metadata: text("metadata"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const swarmReportDownloadApprovals = mysqlTable("swarmReportDownloadApprovals", {
+  id: int("id").autoincrement().primaryKey(),
+  swarmId: int("swarmId").notNull(),
+  format: mysqlEnum("format", ["csv", "pdf"]).notNull(),
+  requestStatus: mysqlEnum("requestStatus", ["pending", "approved", "rejected", "consumed"]).default("pending").notNull(),
+  requiredRoleLabel: varchar("requiredRoleLabel", { length: 160 }).notNull(),
+  requestedByUserId: int("requestedByUserId"),
+  requestedByLabel: varchar("requestedByLabel", { length: 160 }).notNull(),
+  requestedBySystemRole: mysqlEnum("requestedBySystemRole", ["user", "admin"]).default("user").notNull(),
+  approvedByUserId: int("approvedByUserId"),
+  approvedByLabel: varchar("approvedByLabel", { length: 160 }),
+  reason: text("reason").notNull(),
+  exportWindowHours: int("exportWindowHours").default(24).notNull(),
+  sensitivityLabel: varchar("sensitivityLabel", { length: 180 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  resolvedAt: timestamp("resolvedAt"),
+  consumedAt: timestamp("consumedAt"),
+});
+
+export const swarmReportSubscriptions = mysqlTable("swarmReportSubscriptions", {
+  id: int("id").autoincrement().primaryKey(),
+  swarmId: int("swarmId").notNull(),
+  cadence: mysqlEnum("cadence", ["daily", "weekly", "monthly"]).notNull(),
+  format: mysqlEnum("format", ["csv", "pdf"]).notNull(),
+  recipientRoleLabel: varchar("recipientRoleLabel", { length: 160 }).notNull(),
+  createdByUserId: int("createdByUserId"),
+  createdByLabel: varchar("createdByLabel", { length: 160 }).notNull(),
+  isActive: mysqlEnum("isActive", ["true", "false"]).default("true").notNull(),
+  startImmediately: mysqlEnum("startImmediately", ["true", "false"]).default("false").notNull(),
+  nextRunAt: timestamp("nextRunAt").notNull(),
+  lastRunAt: timestamp("lastRunAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const swarmAutonomyRuns = mysqlTable("swarmAutonomyRuns", {
+  id: int("id").autoincrement().primaryKey(),
+  swarmId: int("swarmId").notNull(),
+  objective: text("objective").notNull(),
+  context: text("context"),
+  priority: mysqlEnum("priority", ["standard", "urgent", "critical"]).default("standard").notNull(),
+  status: mysqlEnum("status", ["planned", "running", "awaiting_approval", "blocked", "paused", "completed", "cancelled", "failed"]).default("planned").notNull(),
+  governanceStatus: mysqlEnum("governanceStatus", ["clear", "approval_required", "blocked"]).default("clear").notNull(),
+  requestedByUserId: int("requestedByUserId"),
+  requestedByLabel: varchar("requestedByLabel", { length: 160 }).notNull(),
+  requestedByRole: mysqlEnum("requestedByRole", ["user", "admin", "system"]).default("user").notNull(),
+  summary: text("summary").notNull(),
+  startedAt: timestamp("startedAt"),
+  completedAt: timestamp("completedAt"),
+  lastEventAt: timestamp("lastEventAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const swarmAutonomySteps = mysqlTable("swarmAutonomySteps", {
+  id: int("id").autoincrement().primaryKey(),
+  runId: int("runId").notNull(),
+  swarmId: int("swarmId").notNull(),
+  assignedAgentId: int("assignedAgentId").notNull(),
+  assignedAgentName: varchar("assignedAgentName", { length: 160 }).notNull(),
+  title: varchar("title", { length: 180 }).notNull(),
+  instructions: text("instructions").notNull(),
+  status: mysqlEnum("status", ["pending", "in_progress", "completed", "blocked", "awaiting_input", "skipped", "cancelled"]).default("pending").notNull(),
+  sequence: int("sequence").notNull(),
+  dependsOnStepId: int("dependsOnStepId"),
+  output: text("output"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  completedAt: timestamp("completedAt"),
+});
+
+export const swarmAutonomyEvents = mysqlTable("swarmAutonomyEvents", {
+  id: int("id").autoincrement().primaryKey(),
+  runId: int("runId").notNull(),
+  swarmId: int("swarmId").notNull(),
+  stepId: int("stepId"),
+  eventType: mysqlEnum("eventType", ["planned", "delegated", "feedback", "governance", "paused", "resumed", "cancelled", "completed", "failed"]).notNull(),
+  actorLabel: varchar("actorLabel", { length: 160 }).notNull(),
+  detail: text("detail").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type Team = typeof teams.$inferSelect;
@@ -247,3 +346,9 @@ export type Evaluation = typeof evaluations.$inferSelect;
 export type GuardrailEvent = typeof guardrailEvents.$inferSelect;
 export type MetricSnapshot = typeof metricSnapshots.$inferSelect;
 export type SwarmMessage = typeof swarmMessages.$inferSelect;
+export type SwarmReportExport = typeof swarmReportExports.$inferSelect;
+export type SwarmReportDownloadApproval = typeof swarmReportDownloadApprovals.$inferSelect;
+export type SwarmReportSubscription = typeof swarmReportSubscriptions.$inferSelect;
+export type SwarmAutonomyRun = typeof swarmAutonomyRuns.$inferSelect;
+export type SwarmAutonomyStep = typeof swarmAutonomySteps.$inferSelect;
+export type SwarmAutonomyEvent = typeof swarmAutonomyEvents.$inferSelect;

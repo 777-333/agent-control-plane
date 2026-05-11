@@ -1,3 +1,4 @@
+import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
@@ -13,12 +14,16 @@ import {
   updateAgentSwarm,
   createApprovalChainTemplate,
   createApprovalNotification,
+  createAutonomousSwarmRun,
   createEvaluationRun,
   createGuardrailEvent,
   createPermission,
   createPolicy,
   createPrivacyRule,
+  createSwarmReportSubscription,
+  runDueSwarmReportSubscriptions,
   createTeam,
+  controlAutonomousSwarmRun,
   getAccessOverview,
   getControlPlaneSnapshot,
   getDashboardOverview,
@@ -34,7 +39,9 @@ import {
   listPolicies,
   listPrivacyRules,
   removePrivacyRule,
+  requestSwarmReportDownload,
   resolveApprovalStage,
+  resolveSwarmReportDownloadApproval,
   escalateApproval,
   updateApprovalChainTemplate,
 } from "./db";
@@ -180,6 +187,41 @@ export const appRouter = router({
         }),
       )
       .mutation(async ({ input }) => duplicateAgent(input)),
+    createAutonomyRun: protectedProcedure
+      .input(
+        z.object({
+          swarmId: z.number().int(),
+          objective: z.string().min(12),
+          context: z.string().max(4000).optional(),
+          priority: z.enum(["standard", "urgent", "critical"]).default("standard"),
+        }),
+      )
+      .mutation(async ({ ctx, input }) =>
+        createAutonomousSwarmRun({
+          swarmId: input.swarmId,
+          objective: input.objective,
+          context: input.context,
+          priority: input.priority,
+          requestedByUserId: ctx.user.id ?? null,
+          requestedByLabel: ctx.user.name || ctx.user.email || "Current User",
+          requestedByRole: ctx.user.role,
+        })),
+    controlAutonomyRun: protectedProcedure
+      .input(
+        z.object({
+          swarmId: z.number().int(),
+          runId: z.number().int(),
+          action: z.enum(["pause", "resume", "cancel", "approve"]),
+        }),
+      )
+      .mutation(async ({ ctx, input }) =>
+        controlAutonomousSwarmRun({
+          swarmId: input.swarmId,
+          runId: input.runId,
+          action: input.action,
+          actorLabel: ctx.user.name || ctx.user.email || "Current User",
+          actorRole: ctx.user.role,
+        })),
   }),
   policies: router({
     list: protectedProcedure.query(async () => listPolicies()),
@@ -219,6 +261,66 @@ export const appRouter = router({
         }),
       )
       .mutation(async ({ input }) => createPermission(input)),
+  }),
+  swarmReports: router({
+    requestDownload: protectedProcedure
+      .input(
+        z.object({
+          swarmId: z.number().int(),
+          format: z.enum(["csv", "pdf"]),
+          reason: z.string().min(6),
+        }),
+      )
+      .mutation(async ({ ctx, input }) =>
+        requestSwarmReportDownload({
+          swarmId: input.swarmId,
+          format: input.format,
+          reason: input.reason,
+          requestedByUserId: ctx.user.id ?? null,
+          requestedByLabel: ctx.user.name || ctx.user.email || "Current User",
+          requestedBySystemRole: ctx.user.role,
+        })),
+    resolveDownloadApproval: protectedProcedure
+      .input(
+        z.object({
+          approvalId: z.number().int(),
+          decision: z.enum(["approved", "rejected"]),
+        }),
+      )
+      .mutation(async ({ ctx, input }) =>
+        resolveSwarmReportDownloadApproval({
+          approvalId: input.approvalId,
+          decision: input.decision,
+          resolvedByUserId: ctx.user.id ?? null,
+          resolvedByLabel: ctx.user.name || ctx.user.email || "Current User",
+          resolvedBySystemRole: ctx.user.role,
+        })),
+    createSubscription: protectedProcedure
+      .input(
+        z.object({
+          swarmId: z.number().int(),
+          cadence: z.enum(["daily", "weekly", "monthly"]),
+          format: z.enum(["csv", "pdf"]),
+          recipientRoleLabel: z.string().min(2),
+          startImmediately: z.boolean(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) =>
+        createSwarmReportSubscription({
+          swarmId: input.swarmId,
+          cadence: input.cadence,
+          format: input.format,
+          recipientRoleLabel: input.recipientRoleLabel,
+          createdByUserId: ctx.user.id ?? null,
+          createdByLabel: ctx.user.name || ctx.user.email || "Current User",
+          startImmediately: input.startImmediately,
+        })),
+    processDueSubscriptions: protectedProcedure.mutation(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Nur Admins dürfen fällige Governance-Report-Abos ausführen." });
+      }
+      return runDueSwarmReportSubscriptions();
+    }),
   }),
   approvals: router({
     list: protectedProcedure.query(async () => listApprovals()),
