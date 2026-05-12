@@ -117,4 +117,19 @@ describe("SwarmHistoryPanel", () => {
     expect(screen.getByTestId("swarm-reporting-context-7")).toHaveTextContent("Aktiver Reporting-Kontext: Approval-Ereignisse · 1 betroffene Pfade");
     expect(screen.getByRole("button", { name: /Approval-Ereignisse/i })).toHaveAttribute("aria-pressed", "true");
   });
+
+  it("entfernt harte Mindestbreiten aus Filter- und Composer-Bereichen, damit schmale linke Spalten nicht überlaufen", () => {
+    render(<Harness />);
+
+    const historyCard = screen.getAllByTestId("swarm-link-21")[0];
+    expect(historyCard.className).toContain("min-w-0");
+
+    const searchGrid = screen.getAllByLabelText("Verlauf durchsuchen")[0].parentElement as HTMLElement;
+    expect(searchGrid.className).toContain("min-w-0");
+    expect(searchGrid.className).not.toContain("lg:min-w-[320px]");
+
+    const composerGrid = screen.getAllByPlaceholderText(/Neue Nachricht für diesen Pfad dokumentieren/i)[0].parentElement as HTMLElement;
+    expect(composerGrid.className).toContain("min-w-0");
+    expect(composerGrid.className).toContain("xl:grid-cols-[minmax(0,1fr)_200px]");
+  });
 });

@@ -280,4 +280,25 @@ describe("SwarmReportingPanel", () => {
       expect(onControlAutonomyRun).toHaveBeenCalledWith({ runId: 402, action: "approve" });
     });
   });
+
+  it("hält die Reporting- und Autonomie-Container min-width-sicher und breitenschonend", () => {
+    const { container } = render(<Harness />);
+
+    const rootPanel = container.firstElementChild as HTMLElement;
+    expect(rootPanel.className).toContain("min-w-0");
+    expect(rootPanel.className).toContain("overflow-hidden");
+
+    const metricGrid = screen.getAllByText("Nachrichtenfenster")[0].closest("button")?.parentElement as HTMLElement;
+    expect(metricGrid.className).toContain("min-w-0");
+    expect(metricGrid.className).toContain("2xl:grid-cols-4");
+
+    const exportActionColumn = screen.getAllByPlaceholderText(/Begründung für den Report-Download/i)[0].parentElement as HTMLElement;
+    expect(exportActionColumn.className).toContain("xl:max-w-[280px]");
+    expect(exportActionColumn.className).toContain("min-w-0");
+
+    const autonomyPanel = screen.getAllByTestId("swarm-autonomy-panel-7")[0];
+    const autonomyGrid = screen.getAllByPlaceholderText(/Ziel des autonomen Schwarmauftrags/i)[0].closest("div")?.parentElement as HTMLElement;
+    expect(autonomyPanel.className).toContain("min-w-0");
+    expect(autonomyGrid.className).toContain("xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]");
+  });
 });

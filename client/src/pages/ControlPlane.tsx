@@ -604,7 +604,7 @@ export function AgentsPage() {
         </p>
       </Surface>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.12fr)_minmax(320px,0.88fr)] xl:items-start">
+      <div className="grid gap-6 2xl:grid-cols-[minmax(0,1.16fr)_minmax(340px,0.84fr)] 2xl:items-start">
         <Surface className="min-w-0 p-6">
           <p className="text-sm font-semibold text-slate-950">Agentenschwärme und Flotte</p>
           <div className="mt-5 grid gap-4 2xl:grid-cols-2">

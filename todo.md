@@ -120,6 +120,7 @@
 - [x] Autonomie-Servertest ergänzen, der zeigt, dass Feedback den weiteren Lauf nachvollziehbar weiterverarbeitet statt nur einmalig protokolliert zu werden
 - [x] Gezielte Backend-Tests für autonome Governance-Fälle ergänzen: blockierter sensitiver Lauf, `awaiting_approval`, Admin-Freigabe, Pause/Fortsetzen und Stop/Cancel
 - [x] Linke Spaltenansicht in der Agenten-Verwaltung für Schwarm-Reporting und Kommunikationspfade responsiv stabilisieren
-- [ ] Authentifizierten Browsernachweis für `/agents` ergänzen, der Schwarm-Reporting-, Export-, Abo-, Autonomie- und Kommunikationspfad-Karten nach dem Layout-Fix vollständig sichtbar und nicht abgeschnitten zeigt
-- [ ] Gezielte responsive UI- oder Komponententests für die linke Agenten-Spalte ergänzen, die problematische Breakpoints/Containerbreiten gegen Überlauf und Quetschung absichern
-- [ ] Scroll- und Overflow-Verhalten der linken Agenten-Spalte explizit prüfen und bei Bedarf mit dokumentierter Lösung absichern
+- [x] Authentifizierten Browsernachweis für `/agents` ergänzen, der Schwarm-Reporting-, Export-, Abo-, Autonomie- und Kommunikationspfad-Karten nach dem Layout-Fix vollständig sichtbar und nicht abgeschnitten zeigt
+- [x] Gezielte responsive UI- oder Komponententests für die linke Agenten-Spalte ergänzen, die problematische Breakpoints/Containerbreiten gegen Überlauf und Quetschung absichern
+- [x] Scroll- und Overflow-Verhalten der linken Agenten-Spalte explizit prüfen und bei Bedarf mit dokumentierter Lösung absichern
+- [x] Zweite Nachschärfung der linken Agenten-Spalte umsetzen, damit Schwarm-Reporting, Governance-Report-Abos, Autonomer Agenten-Schwarm und Kommunikationspfade in realer Browserbreite nicht mehr auf eine schmale Karten-Spalte zusammengedrückt werden
