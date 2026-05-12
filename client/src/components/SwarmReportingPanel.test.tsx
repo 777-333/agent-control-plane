@@ -296,9 +296,14 @@ describe("SwarmReportingPanel", () => {
     expect(exportActionColumn.className).toContain("min-w-0");
     expect(exportActionColumn.className).toContain("grid");
 
+    const topLayoutGrid = metricGrid.parentElement as HTMLElement;
+    expect(topLayoutGrid.className).toContain("[grid-template-columns:minmax(0,1fr)]");
+    expect(topLayoutGrid.className).toContain("2xl:[grid-template-columns:minmax(0,1.1fr)_minmax(20rem,0.9fr)]");
+
     const autonomyPanel = screen.getAllByTestId("swarm-autonomy-panel-7")[0];
     const autonomyGrid = screen.getAllByPlaceholderText(/Ziel des autonomen Schwarmauftrags/i)[0].closest("div")?.parentElement as HTMLElement;
     expect(autonomyPanel.className).toContain("min-w-0");
-    expect(autonomyGrid.className).toContain("[grid-template-columns:repeat(auto-fit,minmax(20rem,1fr))]");
+    expect(autonomyGrid.className).toContain("[grid-template-columns:minmax(0,1fr)]");
+    expect(autonomyGrid.className).toContain("2xl:[grid-template-columns:minmax(0,0.9fr)_minmax(0,1.1fr)]");
   });
 });

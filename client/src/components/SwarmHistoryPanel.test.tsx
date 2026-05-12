@@ -130,6 +130,6 @@ describe("SwarmHistoryPanel", () => {
 
     const composerGrid = screen.getAllByPlaceholderText(/Neue Nachricht für diesen Pfad dokumentieren/i)[0].parentElement as HTMLElement;
     expect(composerGrid.className).toContain("min-w-0");
-    expect(composerGrid.className).toContain("xl:grid-cols-[minmax(0,1fr)_200px]");
+    expect(composerGrid.className).toContain("2xl:grid-cols-[minmax(0,1fr)_200px]");
   });
 });

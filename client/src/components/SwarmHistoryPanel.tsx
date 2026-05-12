@@ -89,7 +89,7 @@ export function SwarmHistoryPanel({
             Keine Nachrichten entsprechen dem aktuellen Filterkontext.
           </p>
         ) : null}
-        <div className="grid min-w-0 gap-2 xl:grid-cols-[minmax(0,1fr)_200px]">
+        <div className="grid min-w-0 gap-2 2xl:grid-cols-[minmax(0,1fr)_200px]">
           <textarea
             className="min-h-[88px] rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-950 outline-none placeholder:text-slate-400"
             placeholder="Neue Nachricht für diesen Pfad dokumentieren"
