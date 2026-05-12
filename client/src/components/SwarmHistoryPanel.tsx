@@ -40,20 +40,20 @@ export function SwarmHistoryPanel({
 
   return (
     <div
-      className={`rounded-2xl border px-3 py-3 ${highlighted ? "border-indigo-400 bg-indigo-50/80 shadow-sm" : "border-slate-200/80 bg-slate-50"}`}
+      className={`min-w-0 rounded-2xl border px-3 py-3 ${highlighted ? "border-indigo-400 bg-indigo-50/80 shadow-sm" : "border-slate-200/80 bg-slate-50"}`}
       data-testid={`swarm-link-${link.id}`}
     >
       <p className="font-medium text-slate-950">{link.fromAgentName} → {link.toAgentName}</p>
       <p className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">{link.channel} · {link.protocol}</p>
       <p className="mt-2 text-sm leading-6 text-slate-600">{link.purpose}</p>
-      <div className="mt-3 space-y-2 rounded-2xl border border-white/80 bg-white/90 p-3">
+      <div className="mt-3 min-w-0 space-y-2 rounded-2xl border border-white/80 bg-white/90 p-3">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Nachrichtenverlauf</p>
             <p className="mt-1 text-xs text-slate-500">{filteredHistory.length} von {link.history.length} Einträgen sichtbar</p>
             <p className="mt-1 text-[11px] text-slate-400" data-testid={`swarm-filter-context-${link.id}`}>{filterContext}</p>
           </div>
-          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_160px] lg:min-w-[320px]">
+          <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_160px]">
             <input
               className="h-10 rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-950 outline-none placeholder:text-slate-400"
               placeholder="Verlauf durchsuchen"
@@ -89,7 +89,7 @@ export function SwarmHistoryPanel({
             Keine Nachrichten entsprechen dem aktuellen Filterkontext.
           </p>
         ) : null}
-        <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_200px]">
+        <div className="grid min-w-0 gap-2 xl:grid-cols-[minmax(0,1fr)_200px]">
           <textarea
             className="min-h-[88px] rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-950 outline-none placeholder:text-slate-400"
             placeholder="Neue Nachricht für diesen Pfad dokumentieren"

@@ -112,8 +112,14 @@
 - [x] Gezielte Backend-Tests für Governance auf autonomen Schwarmläufen ergänzen, inklusive Eskalation, Blockierung, Freigabe und Stop-Aktionen
 - [ ] Snapshot- und Browsernachweis für autonome Schwarmläufe ergänzen, der echte Laufdaten statt nur UI-Struktur auf `/agents` sichtbar macht
 - [ ] Stabilen Browsernachweis für den unteren Autonomie-Bereich auf `/agents` nachliefern, sobald der Browserkanal wieder deterministisch bis zu den Laufkarten und Governance-Eingriffen extrahiert
+- [x] Layout der linken Spalte im Modul „Agenten-Verwaltung“ korrigieren, damit Reporting-, Export-, Abo- und Autonomie-Karten nicht gequetscht oder abgeschnitten rendern
+- [x] Responsive Struktur der linken Agenten-Spalte nachschärfen, damit Kartenbreiten, Abstände und Scrollverhalten im Agentenmodul konsistent bleiben
 - [x] Separaten Backend-Test für einen echten `awaiting_approval`-Autonomie-Lauf ergänzen, inklusive anschließender Admin-Freigabe
 - [x] Nachweis ergänzen, wie Feedback den weiteren autonomen Schwarm-Lauf beeinflusst oder weiterverarbeitet wird, statt nur als Event protokolliert zu werden
 - [x] Konkrete Servertests für autonome Schwarmläufe ergänzen, die Delegation auf mehrere Mitglieder sowie erzeugte `delegated`- und `feedback`-Events explizit beweisen
 - [x] Autonomie-Servertest ergänzen, der zeigt, dass Feedback den weiteren Lauf nachvollziehbar weiterverarbeitet statt nur einmalig protokolliert zu werden
 - [x] Gezielte Backend-Tests für autonome Governance-Fälle ergänzen: blockierter sensitiver Lauf, `awaiting_approval`, Admin-Freigabe, Pause/Fortsetzen und Stop/Cancel
+- [x] Linke Spaltenansicht in der Agenten-Verwaltung für Schwarm-Reporting und Kommunikationspfade responsiv stabilisieren
+- [ ] Authentifizierten Browsernachweis für `/agents` ergänzen, der Schwarm-Reporting-, Export-, Abo-, Autonomie- und Kommunikationspfad-Karten nach dem Layout-Fix vollständig sichtbar und nicht abgeschnitten zeigt
+- [ ] Gezielte responsive UI- oder Komponententests für die linke Agenten-Spalte ergänzen, die problematische Breakpoints/Containerbreiten gegen Überlauf und Quetschung absichern
+- [ ] Scroll- und Overflow-Verhalten der linken Agenten-Spalte explizit prüfen und bei Bedarf mit dokumentierter Lösung absichern

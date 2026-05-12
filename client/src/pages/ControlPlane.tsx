@@ -604,10 +604,10 @@ export function AgentsPage() {
         </p>
       </Surface>
 
-      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-        <Surface className="p-6">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.12fr)_minmax(320px,0.88fr)] xl:items-start">
+        <Surface className="min-w-0 p-6">
           <p className="text-sm font-semibold text-slate-950">Agentenschwärme und Flotte</p>
-          <div className="mt-5 grid gap-4 md:grid-cols-2">
+          <div className="mt-5 grid gap-4 2xl:grid-cols-2">
             {data.agentSwarms.map(swarm => {
               const members = data.agents.filter(agent => swarm.memberAgentIds.includes(agent.id));
               const { messageWindowCount, approvalMessages, overdueLinks, escalatedLinks, averageResponseMinutes } = getSwarmReportingStats(swarm);
@@ -616,7 +616,7 @@ export function AgentsPage() {
               const swarmReportSubscriptions = (data.swarmReportSubscriptions ?? []).filter((item: (typeof data.swarmReportSubscriptions)[number]) => item.swarmId === swarm.id);
               const swarmAutonomyRuns = (((data as typeof data & { autonomousSwarmRuns?: Array<{ swarmId: number }> }).autonomousSwarmRuns ?? []) as Array<any>).filter(item => item.swarmId === swarm.id);
               return (
-                <div key={swarm.id} className="rounded-[24px] border border-indigo-200/70 bg-indigo-50/70 px-5 py-5 shadow-sm">
+                <div key={swarm.id} className="min-w-0 overflow-hidden rounded-[24px] border border-indigo-200/70 bg-indigo-50/70 px-5 py-5 shadow-sm">
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="text-sm font-semibold text-slate-950">{swarm.name}</p>
@@ -698,7 +698,7 @@ export function AgentsPage() {
                       });
                     }}
                   />
-                  <div className="mt-4 rounded-2xl border border-white/70 bg-white/90 p-4">
+                  <div className="mt-4 min-w-0 rounded-2xl border border-white/70 bg-white/90 p-4">
                     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Kommunikationspfade</p>
                     <div className="mt-3 grid gap-2 text-sm text-slate-600">
                       {swarm.communicationLinks.map(link => {
