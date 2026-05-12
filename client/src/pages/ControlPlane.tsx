@@ -614,7 +614,7 @@ export function AgentsPage() {
               const swarmReportExports = (data.swarmReportExports ?? []).filter((item: (typeof data.swarmReportExports)[number]) => item.swarmId === swarm.id);
               const swarmDownloadApprovals = (data.swarmReportDownloadApprovals ?? []).filter((item: (typeof data.swarmReportDownloadApprovals)[number]) => item.swarmId === swarm.id);
               const swarmReportSubscriptions = (data.swarmReportSubscriptions ?? []).filter((item: (typeof data.swarmReportSubscriptions)[number]) => item.swarmId === swarm.id);
-              const swarmAutonomyRuns = (((data as typeof data & { autonomousSwarmRuns?: Array<{ swarmId: number }> }).autonomousSwarmRuns ?? []) as Array<any>).filter(item => item.swarmId === swarm.id);
+              const swarmAutonomyRuns = (((data as typeof data & { swarmAutonomyRuns?: Array<{ swarmId: number }> }).swarmAutonomyRuns ?? []) as Array<any>).filter(item => item.swarmId === swarm.id);
               return (
                 <div key={swarm.id} className="min-w-0 overflow-hidden rounded-[24px] border border-indigo-200/70 bg-indigo-50/70 px-5 py-5 shadow-sm">
                   <div className="flex items-start justify-between gap-3">

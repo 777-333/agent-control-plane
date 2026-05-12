@@ -107,11 +107,11 @@
 - [x] Serverseitige Orchestrierung ergänzen, die Teilaufgaben auf Schwarmmitglieder verteilt und Rückmeldungen rekursiv verarbeitet
 - [x] Governance- und Freigaberegeln auf autonome Schwarmaufträge anwenden, einschließlich Stop-, Eskalations- und Eingriffsmechanismen
 - [x] Oberfläche für autonome Schwarmaufträge, Delegationsverlauf und manuelle Eingriffe in der Agenten-Verwaltung ergänzen
-- [ ] Test- und Browsernachweise für autonome Schwarmplanung, Delegation und Rückkopplung erstellen
+- [x] Test- und Browsernachweise für autonome Schwarmplanung, Delegation und Rückkopplung erstellen
 - [x] Serverseitigen Code- und Testnachweis ergänzen, dass autonome Schwarmaufträge Teilaufgaben tatsächlich an Schwarmmitglieder verteilen und Feedback rekursiv weiterverarbeiten
 - [x] Gezielte Backend-Tests für Governance auf autonomen Schwarmläufen ergänzen, inklusive Eskalation, Blockierung, Freigabe und Stop-Aktionen
-- [ ] Snapshot- und Browsernachweis für autonome Schwarmläufe ergänzen, der echte Laufdaten statt nur UI-Struktur auf `/agents` sichtbar macht
-- [ ] Stabilen Browsernachweis für den unteren Autonomie-Bereich auf `/agents` nachliefern, sobald der Browserkanal wieder deterministisch bis zu den Laufkarten und Governance-Eingriffen extrahiert
+- [x] Snapshot- und Browsernachweis für autonome Schwarmläufe ergänzen, der echte Laufdaten statt nur UI-Struktur auf `/agents` sichtbar macht
+- [x] Stabilen Browsernachweis für den unteren Autonomie-Bereich auf `/agents` nachliefern, sobald der Browserkanal wieder deterministisch bis zu den Laufkarten und Governance-Eingriffen extrahiert
 - [x] Layout der linken Spalte im Modul „Agenten-Verwaltung“ korrigieren, damit Reporting-, Export-, Abo- und Autonomie-Karten nicht gequetscht oder abgeschnitten rendern
 - [x] Responsive Struktur der linken Agenten-Spalte nachschärfen, damit Kartenbreiten, Abstände und Scrollverhalten im Agentenmodul konsistent bleiben
 - [x] Separaten Backend-Test für einen echten `awaiting_approval`-Autonomie-Lauf ergänzen, inklusive anschließender Admin-Freigabe
@@ -124,3 +124,4 @@
 - [x] Gezielte responsive UI- oder Komponententests für die linke Agenten-Spalte ergänzen, die problematische Breakpoints/Containerbreiten gegen Überlauf und Quetschung absichern
 - [x] Scroll- und Overflow-Verhalten der linken Agenten-Spalte explizit prüfen und bei Bedarf mit dokumentierter Lösung absichern
 - [x] Zweite Nachschärfung der linken Agenten-Spalte umsetzen, damit Schwarm-Reporting, Governance-Report-Abos, Autonomer Agenten-Schwarm und Kommunikationspfade in realer Browserbreite nicht mehr auf eine schmale Karten-Spalte zusammengedrückt werden
+- [x] Snapshot-Anbindung autonomer Schwarmläufe in `/agents` korrigieren, damit reale Laufkarten aus `swarmAutonomyRuns` statt leerer 0-Läufe-Zustände gerendert werden
