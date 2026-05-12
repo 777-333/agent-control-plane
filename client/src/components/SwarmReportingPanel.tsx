@@ -332,8 +332,8 @@ export function SwarmReportingPanel({
           Aktiver Reporting-Kontext: {activeMeta.label} · {activeItems.length} betroffene Pfade
         </p>
       </div>
-      <div className="mt-3 flex min-w-0 flex-col gap-3 2xl:flex-row 2xl:items-start 2xl:justify-between">
-        <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-2 2xl:grid-cols-4">
+      <div className="mt-3 grid min-w-0 gap-3 [grid-template-columns:repeat(auto-fit,minmax(18rem,1fr))]">
+        <div className="grid min-w-0 gap-3 [grid-template-columns:repeat(auto-fit,minmax(11rem,1fr))]">
           {(Object.keys(metricMeta) as SwarmReportingMetricKey[]).map(metric => {
             const meta = metricMeta[metric];
             const selected = metric === selectedMetric;
@@ -352,7 +352,7 @@ export function SwarmReportingPanel({
             );
           })}
         </div>
-        <div className="grid min-w-0 gap-2 2xl:w-full 2xl:max-w-[280px] 2xl:flex-none">
+        <div className="grid min-w-0 gap-2">
           <textarea
             className="min-h-[88px] rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700 outline-none placeholder:text-slate-400"
             value={exportReason}
@@ -435,7 +435,7 @@ export function SwarmReportingPanel({
           )}
         </div>
       </div>
-      <div className="mt-4 grid min-w-0 gap-4 2xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+      <div className="mt-4 grid min-w-0 gap-4 [grid-template-columns:repeat(auto-fit,minmax(18rem,1fr))]">
         <div className="rounded-2xl border border-slate-100 bg-slate-50/90 p-3">
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -517,7 +517,7 @@ export function SwarmReportingPanel({
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Governance-Report-Abos</p>
           <p className="mt-1 text-sm text-slate-600">Zeitgesteuerte Reports werden serverseitig registriert und bei Fälligkeit automatisch in die Export-Historie geschrieben.</p>
         </div>
-        <div className="mt-3 grid min-w-0 gap-3 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+        <div className="mt-3 grid min-w-0 gap-3 [grid-template-columns:repeat(auto-fit,minmax(18rem,1fr))]">
           <div className="grid gap-2 rounded-2xl border border-slate-200 bg-white p-3">
             <select className="h-11 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900" value={subscriptionCadence} onChange={event => setSubscriptionCadence(event.target.value as "daily" | "weekly" | "monthly") }>
               <option value="daily">Täglich</option>
@@ -571,7 +571,7 @@ export function SwarmReportingPanel({
           </div>
           <span className="text-xs text-slate-500">{autonomyRuns.length} Läufe</span>
         </div>
-        <div className="mt-3 grid min-w-0 gap-3 2xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+        <div className="mt-3 grid min-w-0 gap-3 [grid-template-columns:repeat(auto-fit,minmax(20rem,1fr))]">
           <div className="grid gap-2 rounded-2xl border border-slate-200 bg-white p-3">
             <textarea
               className="min-h-[96px] rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700 outline-none placeholder:text-slate-400"
@@ -636,7 +636,7 @@ export function SwarmReportingPanel({
                   <p className="mt-2 text-sm text-slate-700">{run.summary}</p>
                   <p className="mt-2 text-xs text-slate-500">Governance-Status: {run.governanceStatus} · Schritte: {run.steps.length} · Ereignisse: {run.events.length}</p>
                 </div>
-                <div className="mt-3 grid min-w-0 gap-3 2xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+                <div className="mt-3 grid min-w-0 gap-3 [grid-template-columns:repeat(auto-fit,minmax(20rem,1fr))]">
                   <div className="rounded-2xl border border-slate-100 bg-slate-50/80 px-3 py-3">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Delegationsplan</p>
                     <div className="mt-2 grid gap-2">

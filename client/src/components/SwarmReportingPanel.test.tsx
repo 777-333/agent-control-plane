@@ -290,15 +290,15 @@ describe("SwarmReportingPanel", () => {
 
     const metricGrid = screen.getAllByText("Nachrichtenfenster")[0].closest("button")?.parentElement as HTMLElement;
     expect(metricGrid.className).toContain("min-w-0");
-    expect(metricGrid.className).toContain("2xl:grid-cols-4");
+    expect(metricGrid.className).toContain("[grid-template-columns:repeat(auto-fit,minmax(11rem,1fr))]");
 
     const exportActionColumn = screen.getAllByPlaceholderText(/Begründung für den Report-Download/i)[0].parentElement as HTMLElement;
-    expect(exportActionColumn.className).toContain("xl:max-w-[280px]");
     expect(exportActionColumn.className).toContain("min-w-0");
+    expect(exportActionColumn.className).toContain("grid");
 
     const autonomyPanel = screen.getAllByTestId("swarm-autonomy-panel-7")[0];
     const autonomyGrid = screen.getAllByPlaceholderText(/Ziel des autonomen Schwarmauftrags/i)[0].closest("div")?.parentElement as HTMLElement;
     expect(autonomyPanel.className).toContain("min-w-0");
-    expect(autonomyGrid.className).toContain("xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]");
+    expect(autonomyGrid.className).toContain("[grid-template-columns:repeat(auto-fit,minmax(20rem,1fr))]");
   });
 });

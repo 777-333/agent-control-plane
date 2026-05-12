@@ -125,3 +125,7 @@
 - [x] Scroll- und Overflow-Verhalten der linken Agenten-Spalte explizit prüfen und bei Bedarf mit dokumentierter Lösung absichern
 - [x] Zweite Nachschärfung der linken Agenten-Spalte umsetzen, damit Schwarm-Reporting, Governance-Report-Abos, Autonomer Agenten-Schwarm und Kommunikationspfade in realer Browserbreite nicht mehr auf eine schmale Karten-Spalte zusammengedrückt werden
 - [x] Snapshot-Anbindung autonomer Schwarmläufe in `/agents` korrigieren, damit reale Laufkarten aus `swarmAutonomyRuns` statt leerer 0-Läufe-Zustände gerendert werden
+- [ ] Layout der linken Agenten-Spalte speziell für die große normale Preview nachschärfen, damit Schwarm-Reporting, Governance-Report-Abos und Autonomie-Karten dort nicht weiter auf eine schmale Innen-Spalte zusammengedrückt werden
+- [ ] Innere linke Schwarmspalte in der großen normalen Preview korrigieren, damit Reporting-, Export-, Abo-, Autonomie- und Kommunikationskarten nicht mehr auf eine schmale senkrechte Innen-Spur zusammengedrückt werden
+- [ ] Linke innere Schwarmspalte in der großen normalen Preview weiter nachschärfen, damit Reporting-, Abo-, Autonomie- und Kommunikationskarten bei typischer Desktopbreite nicht mehr durch die kurze rechte Formularspalte unnötig schmal bleiben
+- [x] Leicht verständliches Handbuch für das Modul „Agenten-Verwaltung“ mit Schritt-für-Schritt-Anleitung und Praxisbeispielen erstellen

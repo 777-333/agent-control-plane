@@ -604,10 +604,10 @@ export function AgentsPage() {
         </p>
       </Surface>
 
-      <div className="grid gap-6 2xl:grid-cols-[minmax(0,1.16fr)_minmax(340px,0.84fr)] 2xl:items-start">
+      <div className="grid gap-6">
         <Surface className="min-w-0 p-6">
           <p className="text-sm font-semibold text-slate-950">Agentenschwärme und Flotte</p>
-          <div className="mt-5 grid gap-4 2xl:grid-cols-2">
+          <div className="mt-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(32rem,1fr))]">
             {data.agentSwarms.map(swarm => {
               const members = data.agents.filter(agent => swarm.memberAgentIds.includes(agent.id));
               const { messageWindowCount, approvalMessages, overdueLinks, escalatedLinks, averageResponseMinutes } = getSwarmReportingStats(swarm);
@@ -791,7 +791,7 @@ export function AgentsPage() {
           </div>
         </Surface>
 
-        <div className="space-y-6">
+        <div className="grid gap-6 xl:grid-cols-2">
           <Surface className="p-6">
             <div className="flex items-start justify-between gap-3">
               <div>
