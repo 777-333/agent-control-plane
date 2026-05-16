@@ -129,3 +129,13 @@
 - [x] Innere linke Schwarmspalte in der großen normalen Preview korrigieren, damit Reporting-, Export-, Abo-, Autonomie- und Kommunikationskarten nicht mehr auf eine schmale senkrechte Innen-Spur zusammengedrückt werden
 - [x] Linke innere Schwarmspalte in der großen normalen Preview weiter nachschärfen, damit Reporting-, Abo-, Autonomie- und Kommunikationskarten bei typischer Desktopbreite nicht mehr durch die kurze rechte Formularspalte unnötig schmal bleiben
 - [x] Leicht verständliches Handbuch für das Modul „Agenten-Verwaltung“ mit Schritt-für-Schritt-Anleitung und Praxisbeispielen erstellen
+- [x] Zentrales kundenfreundliches Benutzerhandbuch für die Agent Control Plane mit Einleitung, Orientierung und Modulübersicht anlegen
+- [x] Bestehendes Handbuch der Agenten-Verwaltung auf die neue modulweise Handbuchstruktur abstimmen
+- [x] Handbuch für das Modul „Policy Engine“ in einfacher, kundenfreundlicher Sprache mit Schritt-für-Schritt-Anleitung und Praxisbeispielen erstellen
+- [x] Handbuch für das Modul „Rollen- und Rechteverwaltung“ in einfacher, kundenfreundlicher Sprache mit Schritt-für-Schritt-Anleitung und Praxisbeispielen erstellen
+- [x] Handbuch für das Modul „Approval Workflow“ in einfacher, kundenfreundlicher Sprache mit Schritt-für-Schritt-Anleitung und Praxisbeispielen erstellen
+- [x] Handbuch für das Modul „Audit Log“ in einfacher, kundenfreundlicher Sprache mit Schritt-für-Schritt-Anleitung und Praxisbeispielen erstellen
+- [x] Handbuch für das Modul „Tool & Connector Layer“ in einfacher, kundenfreundlicher Sprache mit Schritt-für-Schritt-Anleitung und Praxisbeispielen erstellen
+- [x] Handbuch für das Modul „Evaluation Layer“ in einfacher, kundenfreundlicher Sprache mit Schritt-für-Schritt-Anleitung und Praxisbeispielen erstellen
+- [x] Handbuch für das Modul „Runtime Guardrails“ in einfacher, kundenfreundlicher Sprache mit Schritt-für-Schritt-Anleitung und Praxisbeispielen erstellen
+- [x] Handbuch für das Modul „Observability & Cost Monitoring“ in einfacher, kundenfreundlicher Sprache mit Schritt-für-Schritt-Anleitung und Praxisbeispielen erstellen

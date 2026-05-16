@@ -3,7 +3,11 @@
 **Autor:** Manus AI  
 **Produkt:** Agent Control Plane  
 **Modul:** Agenten-Verwaltung  
-**Stand:** 12. Mai 2026
+**Stand:** 16. Mai 2026
+
+## 0. Einordnung in das Gesamt-Handbuch
+
+Dieses Dokument ist Teil der **modulweisen Benutzerhandbuch-Reihe** für die Agent Control Plane. Wenn Sie das Tool gerade erst kennenlernen, beginnen Sie am besten zuerst mit **`docs/benutzerhandbuch-agent-control-plane.md`**. Dort finden Sie die allgemeine Einführung, die Navigationslogik und die empfohlene Reihenfolge für den Einstieg in die Module. Dieses Kapitel vertieft anschließend gezielt die **Agenten-Verwaltung** als operative Steuerzentrale der Plattform.
 
 ## 1. Zweck des Moduls
 
