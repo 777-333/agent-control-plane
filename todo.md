@@ -139,3 +139,4 @@
 - [x] Handbuch für das Modul „Evaluation Layer“ in einfacher, kundenfreundlicher Sprache mit Schritt-für-Schritt-Anleitung und Praxisbeispielen erstellen
 - [x] Handbuch für das Modul „Runtime Guardrails“ in einfacher, kundenfreundlicher Sprache mit Schritt-für-Schritt-Anleitung und Praxisbeispielen erstellen
 - [x] Handbuch für das Modul „Observability & Cost Monitoring“ in einfacher, kundenfreundlicher Sprache mit Schritt-für-Schritt-Anleitung und Praxisbeispielen erstellen
+- [x] Handbuch für das Modul „Dashboard-Übersicht“ in einfacher, kundenfreundlicher Sprache mit Schritt-für-Schritt-Anleitung und Praxisbeispielen erstellen
