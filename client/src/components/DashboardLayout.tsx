@@ -32,6 +32,7 @@ import {
   ChevronRight,
   FileSearch,
   Fingerprint,
+  HelpCircle,
   LayoutDashboard,
   LogOut,
   PanelLeft,
@@ -43,6 +44,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
+import FirstRunTour from "./FirstRunTour";
 
 const menuItems = [
   {
@@ -124,6 +126,14 @@ const menuItems = [
     area: "Monitoring",
     description: "Kosten-, Latenz- und Fehlerindikatoren stehen als aktive Monitoring-Fläche bereit.",
     statusLabel: "Live",
+  },
+  {
+    icon: HelpCircle,
+    label: "Hilfe & Dokumentation",
+    path: "/help",
+    area: "Support",
+    description: "Schnellstart, Modulwegweiser, Tour-Neustart und Handbuchpfade stehen verständlich an einem Ort bereit.",
+    statusLabel: "Guide",
   },
 ] as const;
 
@@ -393,6 +403,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: DashboardLayoutCo
       </div>
 
       <SidebarInset className="bg-[radial-gradient(circle_at_top,rgba(114,132,255,0.10),transparent_24%),linear-gradient(180deg,#f8fafc_0%,#f4f7fb_48%,#eef2f7_100%)]">
+        <FirstRunTour userName={user?.name} />
         {isMobile ? (
           <div className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-slate-200/70 bg-background/90 px-3 backdrop-blur">
             <div className="flex items-center gap-3">

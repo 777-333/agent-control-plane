@@ -140,3 +140,6 @@
 - [x] Handbuch für das Modul „Runtime Guardrails“ in einfacher, kundenfreundlicher Sprache mit Schritt-für-Schritt-Anleitung und Praxisbeispielen erstellen
 - [x] Handbuch für das Modul „Observability & Cost Monitoring“ in einfacher, kundenfreundlicher Sprache mit Schritt-für-Schritt-Anleitung und Praxisbeispielen erstellen
 - [x] Handbuch für das Modul „Dashboard-Übersicht“ in einfacher, kundenfreundlicher Sprache mit Schritt-für-Schritt-Anleitung und Praxisbeispielen erstellen
+- [x] Hilfe-&-Dokumentation-Seite direkt in der App mit Einstieg, Modulverweisen und Zugang zu den vorhandenen Handbüchern erstellen
+- [x] Kontextsensitive Infotexte an wichtigen Formularfeldern in Agenten-, Schwarm-, Policy-, Rechte-, Approval-, Evaluation- und Guardrail-Bereichen ergänzen
+- [x] Kleine Starttour für Erstnutzer beim ersten Login mit orientierenden Schritten durch Dashboard, Agenten-Verwaltung, Freigaben und Hilfe-Seite umsetzen

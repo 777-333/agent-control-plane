@@ -189,6 +189,34 @@ function ModuleBadge({ label, tone = "neutral" }: { label: string; tone?: "neutr
   return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${toneMap[tone]}`}>{label}</span>;
 }
 
+function FormAssist({
+  title,
+  text,
+  tone = "neutral",
+}: {
+  title: string;
+  text: string;
+  tone?: "neutral" | "success" | "warning";
+}) {
+  const toneMap = {
+    neutral: "border-sky-200 bg-sky-50/80 text-sky-900",
+    success: "border-emerald-200 bg-emerald-50/80 text-emerald-900",
+    warning: "border-amber-200 bg-amber-50/80 text-amber-900",
+  } as const;
+
+  return (
+    <div className={`rounded-2xl border px-4 py-3 text-sm shadow-sm ${toneMap[tone]}`}>
+      <div className="flex items-start gap-3">
+        <Sparkles className="mt-0.5 h-4 w-4 shrink-0" />
+        <div>
+          <p className="font-semibold">{title}</p>
+          <p className="mt-1 leading-6 opacity-90">{text}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TwoColumnGrid({ left, right }: { left: React.ReactNode; right: React.ReactNode }) {
   return <div className="grid gap-6 xl:grid-cols-[1.25fr_0.95fr]">{left}{right}</div>;
 }
@@ -809,6 +837,10 @@ export function AgentsPage() {
               {(isEditing || isDuplicating) && <ModuleBadge label={isEditing ? "Edit-Modus" : "Duplikat-Modus"} />}
             </div>
             <div className="mt-5 space-y-4">
+              <FormAssist
+                title="Wann ist dieses Formular sinnvoll?"
+                text="Nutzen Sie dieses Formular, wenn ein einzelner Agent neu angelegt, überarbeitet oder als Vorlage dupliziert werden soll. Name, Beschreibung und Owner sind die drei wichtigsten Felder für einen guten Start."
+              />
               <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none ring-0 placeholder:text-slate-400" placeholder="Agentenname" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
               <div className="space-y-2">
                 <textarea className="min-h-[108px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-950 outline-none placeholder:text-slate-400" placeholder="Beschreibung" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
@@ -831,6 +863,11 @@ export function AgentsPage() {
                   <option value="development">development</option>
                 </select>
               </div>
+              <FormAssist
+                title="Kurz erklärt"
+                text="Das Feld Team ordnet den Agenten organisatorisch ein, Owner benennt die fachlich verantwortliche Person, und das Modell beschreibt die technische Basis. Die Umgebung hilft Ihnen, produktive und testweise Agenten sauber zu trennen."
+                tone="success"
+              />
               <div className="flex flex-col gap-3 sm:flex-row">
                 <Button
                   className="h-11 flex-1 rounded-2xl bg-slate-950 text-white hover:bg-slate-900"
@@ -891,6 +928,10 @@ export function AgentsPage() {
               <ModuleBadge label={`${swarmForm.members.length} Mitglieder`} tone="neutral" />
             </div>
             <div className="mt-5 space-y-4">
+              <FormAssist
+                title="Wofür ist ein Schwarm gedacht?"
+                text="Ein Schwarm ist sinnvoll, wenn mehrere spezialisierte Agenten gemeinsam an einer Aufgabe arbeiten. Beginnen Sie mit einer klaren Mission, einem Owner und nur wenigen Rollen, damit die Zusammenarbeit übersichtlich bleibt."
+              />
               <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none placeholder:text-slate-400" placeholder="Schwarmname" value={swarmForm.name} onChange={e => setSwarmForm(current => ({ ...current, name: e.target.value }))} />
               <textarea className="min-h-[108px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-950 outline-none placeholder:text-slate-400" placeholder="Mission des Schwarms" value={swarmForm.mission} onChange={e => setSwarmForm(current => ({ ...current, mission: e.target.value }))} />
               <div className="grid gap-4 md:grid-cols-2">
@@ -917,6 +958,11 @@ export function AgentsPage() {
                 <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none placeholder:text-slate-400" type="number" min={5} max={2880} placeholder="Eskalation nach Minuten" value={swarmForm.governance.escalationAfterMinutes} onChange={e => setSwarmForm(current => ({ ...current, governance: { ...current.governance, escalationAfterMinutes: Number(e.target.value || 0) } }))} />
                 <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none placeholder:text-slate-400 md:col-span-2" type="number" min={1} max={720} placeholder="Reporting-Fenster in Stunden" value={swarmForm.governance.reportingWindowHours} onChange={e => setSwarmForm(current => ({ ...current, governance: { ...current.governance, reportingWindowHours: Number(e.target.value || 0) } }))} />
               </div>
+              <FormAssist
+                title="Governance im Alltag"
+                text="Policy Mode, Approver-Rolle und Eskalationsziel bestimmen, wie streng der Schwarm beaufsichtigt wird. Wenn Sie unsicher sind, wählen Sie zunächst approval_required und hinterlegen eine klare Freigaberolle."
+                tone="warning"
+              />
               <div className="space-y-3">
                 {swarmForm.members.map((member, index) => (
                   <div key={`member-${index}`} className="rounded-[24px] border border-slate-200/80 bg-slate-50 px-4 py-4">
@@ -1069,6 +1115,10 @@ export function PoliciesPage() {
         <Surface className="p-6">
           <p className="text-sm font-semibold text-slate-950">Neue Policy definieren</p>
           <div className="mt-5 space-y-4">
+            <FormAssist
+              title="So wählen Sie eine gute Policy"
+              text="Starten Sie mit einer klaren Regel für einen konkreten Anwendungsfall. Legen Sie zuerst fest, für wen die Regel gelten soll, dann welche Aktion betroffen ist und ob sie erlaubt, verboten oder freigabepflichtig sein soll."
+            />
             <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Policy-Name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
             <div className="grid gap-4 md:grid-cols-2">
               <select className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" value={form.scopeType} onChange={e => setForm({ ...form, scopeType: e.target.value })}>
@@ -1085,6 +1135,11 @@ export function PoliciesPage() {
                 <option value="approval_required">approval_required</option>
               </select>
             </div>
+            <FormAssist
+              title="Wichtige Felder einfach erklärt"
+              text="Scope Reference benennt den Agenten, das Team oder den Connector, auf den die Regel zielt. Action Pattern beschreibt die kritische Aktion. Eine höhere Priorität hilft, widersprüchliche Regeln sauber zu ordnen."
+              tone="success"
+            />
             <input type="number" className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm" value={form.priority} onChange={e => setForm({ ...form, priority: Number(e.target.value) })} />
             <textarea className="min-h-[108px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm" placeholder="Beschreibung" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
             <Button
@@ -1158,6 +1213,10 @@ export function AccessPage() {
           <div className="mt-6 rounded-[24px] border border-slate-200 bg-slate-50 p-4">
             <p className="text-sm font-semibold text-slate-950">Neues Team</p>
             <div className="mt-4 grid gap-3">
+              <FormAssist
+                title="Team sauber anlegen"
+                text="Wählen Sie einen Teamnamen, den auch fachliche Nutzer sofort verstehen. Der Owner sollte die verantwortliche Person oder Funktion sein, Coverage beschreibt knapp, wofür das Team zuständig ist."
+              />
               <input className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Teamname" value={teamForm.name} onChange={e => setTeamForm({ ...teamForm, name: e.target.value })} />
               <input className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Owner" value={teamForm.owner} onChange={e => setTeamForm({ ...teamForm, owner: e.target.value })} />
               <input className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Coverage" value={teamForm.coverage} onChange={e => setTeamForm({ ...teamForm, coverage: e.target.value })} />
@@ -1191,6 +1250,11 @@ export function AccessPage() {
           <div className="mt-6 rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm">
             <p className="text-sm font-semibold text-slate-950">Neue Berechtigung</p>
             <div className="mt-4 grid gap-3">
+              <FormAssist
+                title="Berechtigungen verständlich vergeben"
+                text="Subject ist die Person oder das Team, das Zugriff erhält. Wählen Sie das kleinste sinnvolle Recht und tragen Sie nur die Tools ein, die im Alltag wirklich gebraucht werden."
+                tone="warning"
+              />
               <input className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Subject" value={permissionForm.subject} onChange={e => setPermissionForm({ ...permissionForm, subject: e.target.value })} />
               <div className="grid gap-3 md:grid-cols-2">
                 <select className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" value={permissionForm.subjectType} onChange={e => setPermissionForm({ ...permissionForm, subjectType: e.target.value as "user" | "team" })}>
@@ -1681,6 +1745,10 @@ export function ApprovalsPage() {
               <ModuleBadge label={chainForm.id ? "Bearbeiten" : "Neu"} tone={chainForm.id ? "warning" : "success"} />
             </div>
             <div className="mt-5 space-y-4">
+              <FormAssist
+                title="Wie Sie eine gute Freigabekette starten"
+                text="Benennen Sie zuerst den Geschäftszweck der Kette und legen Sie dann fest, wer in welcher Reihenfolge entscheiden soll. Für die meisten Teams ist ein einfacher serieller Ablauf der beste Einstieg."
+              />
               <input className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Name der Genehmigungskette" value={chainForm.name} onChange={e => setChainForm({ ...chainForm, name: e.target.value })} />
               <textarea className="min-h-[108px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm" placeholder="Beschreibung und Einsatzzweck" value={chainForm.description} onChange={e => setChainForm({ ...chainForm, description: e.target.value })} />
               <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 px-4 py-3 text-sm text-emerald-800">
@@ -2266,6 +2334,10 @@ export function EvaluationsPage() {
         <Surface className="p-6">
           <p className="text-sm font-semibold text-slate-950">Testfall definieren und vor Deployment ausführen</p>
           <div className="mt-5 grid gap-4">
+            <FormAssist
+              title="Was ein guter Testfall braucht"
+              text="Wählen Sie zuerst den betroffenen Agenten. Beschreiben Sie dann den Testfall so klar, dass auch eine andere Person sofort versteht, was geprüft wird und welches Ergebnis erwartet wird."
+            />
             <select className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" value={form.agentId} onChange={e => setForm({ ...form, agentId: Number(e.target.value) })}>
               {data.agents.map(agent => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
             </select>
@@ -2398,6 +2470,11 @@ export function GuardrailsPage() {
             Nutze Schlüsselwortregeln für kontextbezogene Formate wie "Mandanten-ID" oder Regex-Regeln für strikt strukturierte Nummern. Alle Regeln greifen automatisch vor LLM-, Audit-, Notification- und Guardrail-Pfaden.
           </p>
           <div className="mt-5 grid gap-4">
+            <FormAssist
+              title="Datenschutzregel sicher anlegen"
+              text="Nutzen Sie Schlüsselwortregeln für fachliche Begriffe wie Mandanten-ID und Regex-Regeln nur dann, wenn Sie das Format sicher kennen. Testen Sie neue Regeln zuerst so einfach wie möglich."
+              tone="warning"
+            />
             <input className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" placeholder="Regelname" value={ruleForm.name} onChange={e => setRuleForm({ ...ruleForm, name: e.target.value })} />
             <div className="grid gap-4 md:grid-cols-2">
               <select className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm" value={ruleForm.kind} onChange={e => setRuleForm({ ...ruleForm, kind: e.target.value as "contextual" | "regex" })}>

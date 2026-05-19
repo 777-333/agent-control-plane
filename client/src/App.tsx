@@ -16,6 +16,7 @@ import Home, {
   ObservabilityPage,
   PoliciesPage,
 } from "./pages/ControlPlane";
+import HelpCenterPage from "./pages/HelpCenter";
 
 function DashboardShell({ children }: { children: React.ReactNode }) {
   return <DashboardLayout>{children}</DashboardLayout>;
@@ -72,6 +73,11 @@ function Router() {
       <Route path="/observability">
         <DashboardShell>
           <ObservabilityPage />
+        </DashboardShell>
+      </Route>
+      <Route path="/help">
+        <DashboardShell>
+          <HelpCenterPage />
         </DashboardShell>
       </Route>
       <Route path="/404" component={NotFound} />
