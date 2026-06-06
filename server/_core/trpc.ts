@@ -2,9 +2,21 @@ import { NOT_ADMIN_ERR_MSG, UNAUTHED_ERR_MSG } from '@shared/const';
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import type { TrpcContext } from "./context";
+import { ENV } from "./env";
+import { captureException } from "./observability";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
+  errorFormatter({ shape, error }) {
+    if (error.code === "INTERNAL_SERVER_ERROR") {
+      captureException(error.cause ?? error);
+      if (ENV.isProduction) {
+        // Do not leak internal error details to clients in production.
+        return { ...shape, message: "Internal server error" };
+      }
+    }
+    return shape;
+  },
 });
 
 export const router = t.router;

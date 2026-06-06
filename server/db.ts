@@ -1,6 +1,8 @@
 import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, approvalChains, approvalStages, swarmMessages, users } from "../drizzle/schema";
+import { drizzle } from "drizzle-orm/postgres-js";
+import { migrate } from "drizzle-orm/postgres-js/migrator";
+import postgres from "postgres";
+import { InsertUser, appCollections, approvalChains, approvalStages, swarmMessages, users } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 import {
   applySwarmAutonomyAction as applySwarmAutonomyActionEntry,
@@ -20,7 +22,9 @@ import {
   combinePrivacySanitizationResults,
   createCustomPrivacyRule,
   deleteCustomPrivacyRule,
+  exportCustomPrivacyRules,
   getPrivacyProtectionSummary,
+  importCustomPrivacyRules,
   listCustomPrivacyRules,
   sanitizeTextForPrivacy,
   summarizePrivacySanitization,
@@ -28,17 +32,26 @@ import {
 } from "./privacy";
 
 let _db: ReturnType<typeof drizzle> | null = null;
+let _sql: ReturnType<typeof postgres> | null = null;
 
 export async function getDb() {
-  if (!_db && process.env.DATABASE_URL) {
+  if (!_db && ENV.databaseUrl) {
     try {
-      _db = drizzle(process.env.DATABASE_URL);
+      _sql = postgres(ENV.databaseUrl, { prepare: false });
+      _db = drizzle(_sql);
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
+      _sql = null;
     }
   }
   return _db;
+}
+
+/** Raw postgres client (used by the JSONB write-through persistence layer). */
+export async function getSql() {
+  await getDb();
+  return _sql;
 }
 
 export async function upsertUser(user: InsertUser): Promise<void> {
@@ -90,7 +103,8 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       updateSet.lastSignedIn = new Date();
     }
 
-    await db.insert(users).values(values).onDuplicateKeyUpdate({
+    await db.insert(users).values(values).onConflictDoUpdate({
+      target: users.openId,
       set: updateSet,
     });
   } catch (error) {
@@ -2482,6 +2496,88 @@ export async function createGuardrailEvent(input: { agentId: number; triggerType
   return event;
 }
 
+// --- Real event ingestion --------------------------------------------------
+// These helpers let live agents/runtimes push real operational events into the
+// control plane (instead of relying on simulated demo data). Persisted via the
+// JSONB write-through store.
+
+export type IngestAuditInput = {
+  agentId?: number;
+  severity?: "info" | "warning" | "critical";
+  category: string;
+  title: string;
+  detail: string;
+  actorType?: "agent" | "user" | "system";
+  actorRef?: string;
+};
+
+export function recordAuditEvent(input: IngestAuditInput) {
+  const agent = input.agentId ? agentsData.find(item => item.id === input.agentId) : undefined;
+  addAuditEvent({
+    agentId: agent?.id ?? input.agentId ?? 0,
+    agentName: agent?.name ?? "System",
+    severity: input.severity ?? "info",
+    category: input.category,
+    title: input.title,
+    detail: input.detail,
+    actorType: input.actorType ?? "agent",
+    actorRef: input.actorRef ?? "ingest-api",
+  });
+  return auditEventsData[0];
+}
+
+export type IngestMetricInput = {
+  agentId: number;
+  latencyMs: number;
+  errorRate: number;
+  apiCostUsd: number;
+  tokenUsage: number;
+  windowLabel?: string;
+};
+
+export function recordMetricSnapshot(input: IngestMetricInput) {
+  const agent = agentsData.find(item => item.id === input.agentId);
+  if (!agent) {
+    throw new Error("Agent not found");
+  }
+
+  const capturedAt = Date.now();
+  const nextId = metricsData.reduce((max, metric) => Math.max(max, metric.id), 0) + 1;
+  const snapshot: MetricRecord = {
+    id: nextId,
+    agentId: agent.id,
+    agentName: agent.name,
+    latencyMs: input.latencyMs,
+    errorRate: input.errorRate,
+    apiCostUsd: input.apiCostUsd,
+    tokenUsage: input.tokenUsage,
+    windowLabel: input.windowLabel ?? "live",
+    capturedAt,
+  };
+
+  // Replace the latest snapshot for this agent, keep one current row per agent.
+  const existingIndex = metricsData.findIndex(metric => metric.agentId === agent.id);
+  if (existingIndex >= 0) {
+    metricsData[existingIndex] = snapshot;
+  } else {
+    metricsData.push(snapshot);
+  }
+
+  // Append to the rolling history for trend charts (cap at 24 points).
+  const history = metricHistoryData.get(agent.id) ?? [];
+  history.push({
+    window: new Date(capturedAt).toISOString().slice(11, 16),
+    capturedAt,
+    latencyMs: input.latencyMs,
+    errorRate: input.errorRate,
+    apiCostUsd: input.apiCostUsd,
+    tokenUsage: input.tokenUsage,
+  });
+  metricHistoryData.set(agent.id, history.slice(-24));
+
+  return snapshot;
+}
+
 export async function getAccessOverview() {
   return {
     teams: teamsData,
@@ -2658,4 +2754,187 @@ export async function getControlPlaneSnapshot() {
     privacyProtection: getPrivacyProtectionSummary(),
     privacyRules: await listPrivacyRules(),
   };
+}
+
+// ===========================================================================
+// JSONB write-through persistence
+//
+// The business data above lives in in-memory arrays/maps. To survive restarts
+// we snapshot the full state into the `appCollections` table (one JSONB row)
+// and rehydrate it on boot. Writes are debounced (every few seconds, only when
+// the serialized state changed) plus a final flush on graceful shutdown.
+//
+// When no DATABASE_URL is configured (e.g. in unit tests), all persistence
+// calls are no-ops and the seeded in-memory data is used as-is.
+// ===========================================================================
+
+const STATE_KEY = "control_plane_state";
+const PERSIST_INTERVAL_MS = 5_000;
+let lastSerializedState = "";
+let persistenceTimer: ReturnType<typeof setInterval> | null = null;
+
+function buildStateObject() {
+  // NOTE: approvalChains/approvalStages, swarmMessages, swarmReport* and
+  // swarmAutonomy* are persisted in their own relational tables (source of
+  // truth when a DB is configured) and are intentionally NOT snapshotted here.
+  return {
+    agents: agentsData,
+    swarms: agentSwarmsData,
+    policies: policiesData,
+    approvals: approvalsData,
+    approvalNotifications: approvalNotificationsData,
+    auditEvents: auditEventsData,
+    connectors: connectorsData,
+    evaluations: evaluationsData,
+    guardrails: guardrailsData,
+    metrics: metricsData,
+    metricHistory: Array.from(metricHistoryData.entries()),
+    teams: teamsData,
+    permissions: permissionsData,
+    privacy: exportCustomPrivacyRules(),
+    counters: {
+      nextAgentId,
+      nextSwarmId,
+      nextSwarmCommunicationId,
+      nextSwarmMessageId,
+      nextPolicyId,
+      nextTeamId,
+      nextPermissionId,
+      nextEvaluationId,
+      nextGuardrailId,
+      nextApprovalChainId,
+      nextApprovalStageTemplateId,
+      approvalChainSeedChecked,
+    },
+  };
+}
+
+function replaceArrayContents<T>(target: T[], source: unknown) {
+  if (!Array.isArray(source)) return;
+  target.length = 0;
+  target.push(...(source as T[]));
+}
+
+function applyStateObject(state: Record<string, any> | null | undefined) {
+  if (!state || typeof state !== "object") return;
+
+  replaceArrayContents(agentsData, state.agents);
+  replaceArrayContents(agentSwarmsData, state.swarms);
+  replaceArrayContents(policiesData, state.policies);
+  replaceArrayContents(approvalsData, state.approvals);
+  replaceArrayContents(approvalNotificationsData, state.approvalNotifications);
+  replaceArrayContents(auditEventsData, state.auditEvents);
+  replaceArrayContents(connectorsData, state.connectors);
+  replaceArrayContents(evaluationsData, state.evaluations);
+  replaceArrayContents(guardrailsData, state.guardrails);
+  replaceArrayContents(metricsData, state.metrics);
+  replaceArrayContents(teamsData, state.teams);
+  replaceArrayContents(permissionsData, state.permissions);
+
+  if (Array.isArray(state.metricHistory)) {
+    metricHistoryData.clear();
+    for (const entry of state.metricHistory) {
+      if (Array.isArray(entry) && entry.length === 2) {
+        metricHistoryData.set(entry[0], entry[1]);
+      }
+    }
+  }
+
+  importCustomPrivacyRules(state.privacy);
+
+  const counters = state.counters ?? {};
+  if (typeof counters.nextAgentId === "number") nextAgentId = counters.nextAgentId;
+  if (typeof counters.nextSwarmId === "number") nextSwarmId = counters.nextSwarmId;
+  if (typeof counters.nextSwarmCommunicationId === "number") nextSwarmCommunicationId = counters.nextSwarmCommunicationId;
+  if (typeof counters.nextSwarmMessageId === "number") nextSwarmMessageId = counters.nextSwarmMessageId;
+  if (typeof counters.nextPolicyId === "number") nextPolicyId = counters.nextPolicyId;
+  if (typeof counters.nextTeamId === "number") nextTeamId = counters.nextTeamId;
+  if (typeof counters.nextPermissionId === "number") nextPermissionId = counters.nextPermissionId;
+  if (typeof counters.nextEvaluationId === "number") nextEvaluationId = counters.nextEvaluationId;
+  if (typeof counters.nextGuardrailId === "number") nextGuardrailId = counters.nextGuardrailId;
+  if (typeof counters.nextApprovalChainId === "number") nextApprovalChainId = counters.nextApprovalChainId;
+  if (typeof counters.nextApprovalStageTemplateId === "number") nextApprovalStageTemplateId = counters.nextApprovalStageTemplateId;
+  if (typeof counters.approvalChainSeedChecked === "boolean") approvalChainSeedChecked = counters.approvalChainSeedChecked;
+}
+
+async function flushState(force: boolean): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+
+  const stateObject = buildStateObject();
+  const serialized = JSON.stringify(stateObject);
+  if (!force && serialized === lastSerializedState) return;
+  lastSerializedState = serialized;
+
+  try {
+    await db
+      .insert(appCollections)
+      .values({ key: STATE_KEY, data: stateObject })
+      .onConflictDoUpdate({
+        target: appCollections.key,
+        set: { data: stateObject, updatedAt: new Date() },
+      });
+  } catch (error) {
+    console.error("[Persistence] Failed to flush state:", error);
+  }
+}
+
+/**
+ * Hydrate in-memory state from the database and start the write-through loop.
+ * Call once during server startup (before serving requests). No-op without DB.
+ */
+export async function initPersistence(): Promise<void> {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Persistence] No DATABASE_URL configured – running with in-memory data only.");
+    return;
+  }
+
+  // Apply any pending schema migrations before reading/writing state.
+  try {
+    await migrate(db, { migrationsFolder: "drizzle" });
+    console.log("[Persistence] Database migrations are up to date.");
+  } catch (error) {
+    console.error("[Persistence] Failed to apply migrations:", error);
+  }
+
+  try {
+    const rows = await db
+      .select()
+      .from(appCollections)
+      .where(eq(appCollections.key, STATE_KEY))
+      .limit(1);
+
+    if (rows.length > 0 && rows[0].data) {
+      applyStateObject(rows[0].data as Record<string, any>);
+      console.log("[Persistence] State restored from database.");
+    } else {
+      await flushState(true);
+      console.log("[Persistence] Seeded initial demo state into database.");
+    }
+  } catch (error) {
+    console.error("[Persistence] Failed to initialize:", error);
+  }
+
+  lastSerializedState = JSON.stringify(buildStateObject());
+
+  if (!persistenceTimer) {
+    persistenceTimer = setInterval(() => {
+      void flushState(false);
+    }, PERSIST_INTERVAL_MS);
+    if (typeof persistenceTimer.unref === "function") {
+      persistenceTimer.unref();
+    }
+
+    const gracefulFlush = () => {
+      void flushState(false);
+    };
+    process.once("SIGTERM", gracefulFlush);
+    process.once("SIGINT", gracefulFlush);
+  }
+}
+
+/** Force an immediate state flush (used by tests and graceful shutdown). */
+export async function flushPersistedState(): Promise<void> {
+  await flushState(true);
 }

@@ -29,7 +29,17 @@ export function getDevLoginIdentity() {
   };
 }
 
+function extractAccessToken(req: Request): string | undefined {
+  const header = req.headers.authorization;
+  if (typeof header === "string" && header.toLowerCase().startsWith("bearer ")) {
+    return header.slice(7).trim();
+  }
+  const bodyToken = (req.body as { accessToken?: unknown } | undefined)?.accessToken;
+  return typeof bodyToken === "string" ? bodyToken : undefined;
+}
+
 export function registerOAuthRoutes(app: Express) {
+  // Development-only convenience login (no Supabase required).
   app.get("/api/dev-login", async (req: Request, res: Response) => {
     const identity = getDevLoginIdentity();
 
@@ -56,49 +66,42 @@ export function registerOAuthRoutes(app: Express) {
       res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
       res.redirect(302, resolveSafeRedirectTarget(getQueryParam(req, "redirect")));
     } catch (error) {
-      console.error("[OAuth] Dev login failed", error);
+      console.error("[Auth] Dev login failed", error);
       res.status(500).json({ error: "Dev login failed" });
     }
   });
 
-  app.get("/api/oauth/callback", async (req: Request, res: Response) => {
-    const code = getQueryParam(req, "code");
-    const state = getQueryParam(req, "state");
+  // Exchange a verified Supabase access token for our httpOnly session cookie.
+  app.post("/api/auth/session", async (req: Request, res: Response) => {
+    const accessToken = extractAccessToken(req);
 
-    if (!code || !state) {
-      res.status(400).json({ error: "code and state are required" });
+    if (!accessToken) {
+      res.status(400).json({ error: "accessToken is required" });
       return;
     }
 
     try {
-      const tokenResponse = await sdk.exchangeCodeForToken(code, state);
-      const userInfo = await sdk.getUserInfo(tokenResponse.accessToken);
-
-      if (!userInfo.openId) {
-        res.status(400).json({ error: "openId missing from user info" });
-        return;
-      }
+      const identity = await sdk.verifySupabaseToken(accessToken);
 
       await db.upsertUser({
-        openId: userInfo.openId,
-        name: userInfo.name || null,
-        email: userInfo.email ?? null,
-        loginMethod: userInfo.loginMethod ?? userInfo.platform ?? null,
+        openId: identity.openId,
+        name: identity.name,
+        email: identity.email,
+        loginMethod: identity.loginMethod,
         lastSignedIn: new Date(),
       });
 
-      const sessionToken = await sdk.createSessionToken(userInfo.openId, {
-        name: userInfo.name || "",
+      const sessionToken = await sdk.createSessionToken(identity.openId, {
+        name: identity.name ?? "",
         expiresInMs: ONE_YEAR_MS,
       });
 
       const cookieOptions = getSessionCookieOptions(req);
       res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
-
-      res.redirect(302, "/");
+      res.json({ success: true });
     } catch (error) {
-      console.error("[OAuth] Callback failed", error);
-      res.status(500).json({ error: "OAuth callback failed" });
+      console.error("[Auth] Supabase session exchange failed", error);
+      res.status(401).json({ error: "Authentication failed" });
     }
   });
 }

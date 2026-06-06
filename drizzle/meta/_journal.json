@@ -1,68 +1,12 @@
 {
   "version": "7",
-  "dialect": "mysql",
+  "dialect": "postgresql",
   "entries": [
     {
       "idx": 0,
-      "version": "5",
-      "when": 1776717195064,
-      "tag": "0000_fresh_shatterstar",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "5",
-      "when": 1776717531095,
-      "tag": "0001_premium_shaman",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "5",
-      "when": 1776719105877,
-      "tag": "0002_amused_klaw",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "5",
-      "when": 1776720979369,
-      "tag": "0003_lean_hobgoblin",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "5",
-      "when": 1776722487852,
-      "tag": "0004_parched_garia",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "5",
-      "when": 1776722863222,
-      "tag": "0005_silly_wallow",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "5",
-      "when": 1777060024258,
-      "tag": "0006_fearless_fallen_one",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "5",
-      "when": 1778183995002,
-      "tag": "0007_whole_smasher",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "5",
-      "when": 1778533541569,
-      "tag": "0008_crazy_warbound",
+      "version": "7",
+      "when": 1780700758963,
+      "tag": "0000_amusing_blonde_phantom",
       "breakpoints": true
     }
   ]

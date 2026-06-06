@@ -1,335 +1,395 @@
 import {
-  decimal,
-  int,
-  mysqlEnum,
-  mysqlTable,
+  integer,
+  jsonb,
+  numeric,
+  pgEnum,
+  pgTable,
+  serial,
   text,
   timestamp,
   varchar,
-} from "drizzle-orm/mysql-core";
+} from "drizzle-orm/pg-core";
+
+/**
+ * Core relational schema (Postgres / Supabase).
+ *
+ * Auth-critical data (`users`) and the entities that were already persisted
+ * relationally live here. The remaining, deeply-nested business collections are
+ * persisted via the JSONB write-through store in `appCollections` (see
+ * server/db/persistence.ts).
+ *
+ * Columns use camelCase to match both database fields and generated types.
+ */
+
+const ts = (name: string) =>
+  timestamp(name, { withTimezone: true, mode: "date" });
+
+// --- Enums -----------------------------------------------------------------
+export const userRoleEnum = pgEnum("user_role", ["user", "admin"]);
+export const agentStatusEnum = pgEnum("agent_status", ["healthy", "warning", "paused", "offline"]);
+export const riskLevelEnum = pgEnum("risk_level", ["low", "medium", "high", "critical"]);
+export const environmentEnum = pgEnum("environment", ["production", "staging", "development"]);
+export const policyModeEnum = pgEnum("policy_mode", ["enforced", "monitoring", "disabled"]);
+export const connectorTypeEnum = pgEnum("connector_type", ["CRM", "ERP", "E-Mail", "Browser", "Datenbank"]);
+export const connectorStatusEnum = pgEnum("connector_status", ["connected", "degraded", "disconnected"]);
+export const agentConnectorModeEnum = pgEnum("agent_connector_mode", ["read", "write", "approve"]);
+export const policyScopeTypeEnum = pgEnum("policy_scope_type", ["agent", "team", "connector", "global"]);
+export const policyEffectEnum = pgEnum("policy_effect", ["allowed", "forbidden", "approval_required"]);
+export const boolishEnum = pgEnum("boolish", ["true", "false"]);
+export const subjectTypeEnum = pgEnum("subject_type", ["user", "team"]);
+export const permissionLevelEnum = pgEnum("permission_level", ["viewer", "operator", "approver", "admin"]);
+export const actionStatusEnum = pgEnum("action_status", ["executed", "blocked", "pending_approval", "failed"]);
+export const escalationModeEnum = pgEnum("escalation_mode", ["serial", "parallel", "auto_escalate"]);
+export const stageModeEnum = pgEnum("stage_mode", ["serial", "parallel", "branch"]);
+export const branchFieldEnum = pgEnum("branch_field", ["riskLevel", "requestedBy", "agentName", "title", "summary", "chainName", "escalationStatus"]);
+export const branchOperatorEnum = pgEnum("branch_operator", ["always", "equals", "contains", "greater_than", "less_than"]);
+export const quorumModeEnum = pgEnum("quorum_mode", ["all", "majority", "minimum_count", "distinct_roles"]);
+export const approvalEscalationStatusEnum = pgEnum("approval_escalation_status", ["none", "pending", "escalated", "resolved"]);
+export const approvalStatusEnum = pgEnum("approval_status", ["pending", "approved", "rejected", "expired"]);
+export const severityEnum = pgEnum("severity", ["info", "warning", "critical"]);
+export const actorTypeEnum = pgEnum("actor_type", ["agent", "user", "system"]);
+export const evaluationStatusEnum = pgEnum("evaluation_status", ["draft", "running", "passed", "failed"]);
+export const evaluationCaseStatusEnum = pgEnum("evaluation_case_status", ["passed", "failed", "warning"]);
+export const guardrailTriggerEnum = pgEnum("guardrail_trigger", ["policy_violation", "cost_threshold", "tool_anomaly", "latency_spike"]);
+export const guardrailStatusEnum = pgEnum("guardrail_status", ["monitoring", "stopped", "resolved"]);
+export const swarmMessageKindEnum = pgEnum("swarm_message_kind", ["directive", "status", "evidence", "approval"]);
+export const reportFormatEnum = pgEnum("report_format", ["csv", "pdf"]);
+export const triggerSourceEnum = pgEnum("trigger_source", ["manual", "approval", "subscription"]);
+export const systemRoleEnum = pgEnum("system_role", ["user", "admin", "system"]);
+export const downloadRequestStatusEnum = pgEnum("download_request_status", ["pending", "approved", "rejected", "consumed"]);
+export const cadenceEnum = pgEnum("cadence", ["daily", "weekly", "monthly"]);
+export const autonomyPriorityEnum = pgEnum("autonomy_priority", ["standard", "urgent", "critical"]);
+export const autonomyRunStatusEnum = pgEnum("autonomy_run_status", ["planned", "running", "awaiting_approval", "blocked", "paused", "completed", "cancelled", "failed"]);
+export const governanceStatusEnum = pgEnum("governance_status", ["clear", "approval_required", "blocked"]);
+export const autonomyStepStatusEnum = pgEnum("autonomy_step_status", ["pending", "in_progress", "completed", "blocked", "awaiting_input", "skipped", "cancelled"]);
+export const autonomyEventTypeEnum = pgEnum("autonomy_event_type", ["planned", "delegated", "feedback", "governance", "paused", "resumed", "cancelled", "completed", "failed"]);
 
 /**
  * Core user table backing auth flow.
- * Extend this file with additional tables as your product grows.
- * Columns use camelCase to match both database fields and generated types.
+ * `openId` stores the Supabase Auth user UUID.
  */
-export const users = mysqlTable("users", {
-  /**
-   * Surrogate primary key. Auto-incremented numeric value managed by the database.
-   * Use this for relations between tables.
-   */
-  id: int("id").autoincrement().primaryKey(),
-  /** Manus OAuth identifier (openId) returned from the OAuth callback. Unique per user. */
+export const users = pgTable("users", {
+  id: serial("id").primaryKey(),
   openId: varchar("openId", { length: 64 }).notNull().unique(),
   name: text("name"),
   email: varchar("email", { length: 320 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
-  role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-  lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
+  role: userRoleEnum("role").default("user").notNull(),
+  createdAt: ts("createdAt").defaultNow().notNull(),
+  updatedAt: ts("updatedAt").defaultNow().notNull().$onUpdate(() => new Date()),
+  lastSignedIn: ts("lastSignedIn").defaultNow().notNull(),
 });
 
-export const teams = mysqlTable("teams", {
-  id: int("id").autoincrement().primaryKey(),
+/**
+ * Generic JSONB write-through store. One row per in-memory collection
+ * (e.g. "agents", "policies", "approvals"). `data` holds the full collection.
+ */
+export const appCollections = pgTable("appCollections", {
+  key: varchar("key", { length: 80 }).primaryKey(),
+  data: jsonb("data").notNull(),
+  updatedAt: ts("updatedAt").defaultNow().notNull().$onUpdate(() => new Date()),
+});
+
+export const teams = pgTable("teams", {
+  id: serial("id").primaryKey(),
   name: varchar("name", { length: 120 }).notNull(),
   slug: varchar("slug", { length: 140 }).notNull().unique(),
   description: text("description"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  createdAt: ts("createdAt").defaultNow().notNull(),
+  updatedAt: ts("updatedAt").defaultNow().notNull().$onUpdate(() => new Date()),
 });
 
-export const agents = mysqlTable("agents", {
-  id: int("id").autoincrement().primaryKey(),
+export const agents = pgTable("agents", {
+  id: serial("id").primaryKey(),
   name: varchar("name", { length: 140 }).notNull(),
   slug: varchar("slug", { length: 160 }).notNull().unique(),
   description: text("description"),
-  status: mysqlEnum("status", ["healthy", "warning", "paused", "offline"]).default("healthy").notNull(),
-  riskLevel: mysqlEnum("riskLevel", ["low", "medium", "high", "critical"]).default("medium").notNull(),
-  ownerUserId: int("ownerUserId"),
-  teamId: int("teamId"),
+  status: agentStatusEnum("status").default("healthy").notNull(),
+  riskLevel: riskLevelEnum("riskLevel").default("medium").notNull(),
+  ownerUserId: integer("ownerUserId"),
+  teamId: integer("teamId"),
   model: varchar("model", { length: 160 }).notNull(),
-  environment: mysqlEnum("environment", ["production", "staging", "development"]).default("production").notNull(),
-  policyMode: mysqlEnum("policyMode", ["enforced", "monitoring", "disabled"]).default("enforced").notNull(),
-  lastHeartbeatAt: timestamp("lastHeartbeatAt").defaultNow().notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  environment: environmentEnum("environment").default("production").notNull(),
+  policyMode: policyModeEnum("policyMode").default("enforced").notNull(),
+  lastHeartbeatAt: ts("lastHeartbeatAt").defaultNow().notNull(),
+  createdAt: ts("createdAt").defaultNow().notNull(),
+  updatedAt: ts("updatedAt").defaultNow().notNull().$onUpdate(() => new Date()),
 });
 
-export const connectors = mysqlTable("connectors", {
-  id: int("id").autoincrement().primaryKey(),
+export const connectors = pgTable("connectors", {
+  id: serial("id").primaryKey(),
   name: varchar("name", { length: 120 }).notNull(),
-  type: mysqlEnum("type", ["CRM", "ERP", "E-Mail", "Browser", "Datenbank"]).notNull(),
-  status: mysqlEnum("status", ["connected", "degraded", "disconnected"]).default("connected").notNull(),
+  type: connectorTypeEnum("type").notNull(),
+  status: connectorStatusEnum("status").default("connected").notNull(),
   endpointLabel: varchar("endpointLabel", { length: 160 }).notNull(),
   authMode: varchar("authMode", { length: 64 }).notNull(),
-  lastSyncAt: timestamp("lastSyncAt").defaultNow().notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  lastSyncAt: ts("lastSyncAt").defaultNow().notNull(),
+  createdAt: ts("createdAt").defaultNow().notNull(),
 });
 
-export const agentConnectors = mysqlTable("agentConnectors", {
-  id: int("id").autoincrement().primaryKey(),
-  agentId: int("agentId").notNull(),
-  connectorId: int("connectorId").notNull(),
+export const agentConnectors = pgTable("agentConnectors", {
+  id: serial("id").primaryKey(),
+  agentId: integer("agentId").notNull(),
+  connectorId: integer("connectorId").notNull(),
   permissionScope: varchar("permissionScope", { length: 120 }).notNull(),
-  mode: mysqlEnum("mode", ["read", "write", "approve"]).default("read").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  mode: agentConnectorModeEnum("mode").default("read").notNull(),
+  createdAt: ts("createdAt").defaultNow().notNull(),
 });
 
-export const policies = mysqlTable("policies", {
-  id: int("id").autoincrement().primaryKey(),
+export const policies = pgTable("policies", {
+  id: serial("id").primaryKey(),
   name: varchar("name", { length: 140 }).notNull(),
-  scopeType: mysqlEnum("scopeType", ["agent", "team", "connector", "global"]).default("agent").notNull(),
+  scopeType: policyScopeTypeEnum("scopeType").default("agent").notNull(),
   scopeRef: varchar("scopeRef", { length: 140 }).notNull(),
   actionPattern: varchar("actionPattern", { length: 180 }).notNull(),
-  effect: mysqlEnum("effect", ["allowed", "forbidden", "approval_required"]).notNull(),
-  priority: int("priority").default(100).notNull(),
-  isActive: mysqlEnum("isActive", ["true", "false"]).default("true").notNull(),
+  effect: policyEffectEnum("effect").notNull(),
+  priority: integer("priority").default(100).notNull(),
+  isActive: boolishEnum("isActive").default("true").notNull(),
   description: text("description"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  createdAt: ts("createdAt").defaultNow().notNull(),
+  updatedAt: ts("updatedAt").defaultNow().notNull().$onUpdate(() => new Date()),
 });
 
-export const teamMemberships = mysqlTable("teamMemberships", {
-  id: int("id").autoincrement().primaryKey(),
-  userId: int("userId").notNull(),
-  teamId: int("teamId").notNull(),
+export const teamMemberships = pgTable("teamMemberships", {
+  id: serial("id").primaryKey(),
+  userId: integer("userId").notNull(),
+  teamId: integer("teamId").notNull(),
   roleLabel: varchar("roleLabel", { length: 80 }).notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  createdAt: ts("createdAt").defaultNow().notNull(),
 });
 
-export const agentPermissions = mysqlTable("agentPermissions", {
-  id: int("id").autoincrement().primaryKey(),
-  agentId: int("agentId").notNull(),
-  subjectType: mysqlEnum("subjectType", ["user", "team"]).notNull(),
+export const agentPermissions = pgTable("agentPermissions", {
+  id: serial("id").primaryKey(),
+  agentId: integer("agentId").notNull(),
+  subjectType: subjectTypeEnum("subjectType").notNull(),
   subjectRef: varchar("subjectRef", { length: 80 }).notNull(),
-  permissionLevel: mysqlEnum("permissionLevel", ["viewer", "operator", "approver", "admin"]).notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  permissionLevel: permissionLevelEnum("permissionLevel").notNull(),
+  createdAt: ts("createdAt").defaultNow().notNull(),
 });
 
-export const agentActions = mysqlTable("agentActions", {
-  id: int("id").autoincrement().primaryKey(),
-  agentId: int("agentId").notNull(),
-  connectorId: int("connectorId"),
+export const agentActions = pgTable("agentActions", {
+  id: serial("id").primaryKey(),
+  agentId: integer("agentId").notNull(),
+  connectorId: integer("connectorId"),
   actionType: varchar("actionType", { length: 140 }).notNull(),
-  status: mysqlEnum("status", ["executed", "blocked", "pending_approval", "failed"]).notNull(),
-  riskLevel: mysqlEnum("riskLevel", ["low", "medium", "high", "critical"]).default("medium").notNull(),
-  estimatedCostUsd: decimal("estimatedCostUsd", { precision: 10, scale: 2 }).default("0.00").notNull(),
-  tokenUsage: int("tokenUsage").default(0).notNull(),
+  status: actionStatusEnum("status").notNull(),
+  riskLevel: riskLevelEnum("riskLevel").default("medium").notNull(),
+  estimatedCostUsd: numeric("estimatedCostUsd", { precision: 10, scale: 2 }).default("0.00").notNull(),
+  tokenUsage: integer("tokenUsage").default(0).notNull(),
   summary: text("summary").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  createdAt: ts("createdAt").defaultNow().notNull(),
 });
 
-export const approvalChains = mysqlTable("approvalChains", {
-  id: int("id").autoincrement().primaryKey(),
+export const approvalChains = pgTable("approvalChains", {
+  id: serial("id").primaryKey(),
   name: varchar("name", { length: 160 }).notNull(),
   description: text("description"),
-  escalationMode: mysqlEnum("escalationMode", ["serial", "parallel", "auto_escalate"]).default("serial").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  escalationMode: escalationModeEnum("escalationMode").default("serial").notNull(),
+  createdAt: ts("createdAt").defaultNow().notNull(),
+  updatedAt: ts("updatedAt").defaultNow().notNull().$onUpdate(() => new Date()),
 });
 
-export const approvalStages = mysqlTable("approvalStages", {
-  id: int("id").autoincrement().primaryKey(),
-  chainId: int("chainId").notNull(),
-  stageOrder: int("stageOrder").notNull(),
+export const approvalStages = pgTable("approvalStages", {
+  id: serial("id").primaryKey(),
+  chainId: integer("chainId").notNull(),
+  stageOrder: integer("stageOrder").notNull(),
   stageName: varchar("stageName", { length: 140 }).notNull(),
   requiredRole: varchar("requiredRole", { length: 100 }).notNull(),
   defaultApproverLabel: varchar("defaultApproverLabel", { length: 160 }).notNull(),
-  stageMode: mysqlEnum("stageMode", ["serial", "parallel", "branch"]).default("serial").notNull(),
+  stageMode: stageModeEnum("stageMode").default("serial").notNull(),
   laneKey: varchar("laneKey", { length: 80 }).default("main").notNull(),
-  branchSourceStageOrder: int("branchSourceStageOrder"),
+  branchSourceStageOrder: integer("branchSourceStageOrder"),
   branchLabel: varchar("branchLabel", { length: 120 }),
-  branchField: mysqlEnum("branchField", ["riskLevel", "requestedBy", "agentName", "title", "summary", "chainName", "escalationStatus"]).default("riskLevel").notNull(),
-  branchOperator: mysqlEnum("branchOperator", ["always", "equals", "contains", "greater_than", "less_than"]).default("always").notNull(),
+  branchField: branchFieldEnum("branchField").default("riskLevel").notNull(),
+  branchOperator: branchOperatorEnum("branchOperator").default("always").notNull(),
   branchValue: varchar("branchValue", { length: 160 }),
-  quorumMode: mysqlEnum("quorumMode", ["all", "majority", "minimum_count", "distinct_roles"]).default("all").notNull(),
-  quorumTarget: int("quorumTarget").default(1).notNull(),
-  slaMinutes: int("slaMinutes").default(60).notNull(),
-  escalationAfterMinutes: int("escalationAfterMinutes").default(120).notNull(),
+  quorumMode: quorumModeEnum("quorumMode").default("all").notNull(),
+  quorumTarget: integer("quorumTarget").default(1).notNull(),
+  slaMinutes: integer("slaMinutes").default(60).notNull(),
+  escalationAfterMinutes: integer("escalationAfterMinutes").default(120).notNull(),
   escalationTargetLabel: varchar("escalationTargetLabel", { length: 160 }).notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  createdAt: ts("createdAt").defaultNow().notNull(),
 });
 
-export const approvals = mysqlTable("approvals", {
-  id: int("id").autoincrement().primaryKey(),
-  agentId: int("agentId").notNull(),
-  actionId: int("actionId").notNull(),
-  chainId: int("chainId"),
-  currentStageOrder: int("currentStageOrder").default(1).notNull(),
-  escalationStatus: mysqlEnum("escalationStatus", ["none", "pending", "escalated", "resolved"]).default("none").notNull(),
-  status: mysqlEnum("status", ["pending", "approved", "rejected", "expired"]).default("pending").notNull(),
-  requestedByUserId: int("requestedByUserId"),
-  approverUserId: int("approverUserId"),
+export const approvals = pgTable("approvals", {
+  id: serial("id").primaryKey(),
+  agentId: integer("agentId").notNull(),
+  actionId: integer("actionId").notNull(),
+  chainId: integer("chainId"),
+  currentStageOrder: integer("currentStageOrder").default(1).notNull(),
+  escalationStatus: approvalEscalationStatusEnum("escalationStatus").default("none").notNull(),
+  status: approvalStatusEnum("status").default("pending").notNull(),
+  requestedByUserId: integer("requestedByUserId"),
+  approverUserId: integer("approverUserId"),
   summary: text("summary").notNull(),
-  requestedAt: timestamp("requestedAt").defaultNow().notNull(),
-  resolvedAt: timestamp("resolvedAt"),
+  requestedAt: ts("requestedAt").defaultNow().notNull(),
+  resolvedAt: ts("resolvedAt"),
 });
 
-export const auditEvents = mysqlTable("auditEvents", {
-  id: int("id").autoincrement().primaryKey(),
-  agentId: int("agentId"),
-  actionId: int("actionId"),
-  severity: mysqlEnum("severity", ["info", "warning", "critical"]).default("info").notNull(),
+export const auditEvents = pgTable("auditEvents", {
+  id: serial("id").primaryKey(),
+  agentId: integer("agentId"),
+  actionId: integer("actionId"),
+  severity: severityEnum("severity").default("info").notNull(),
   category: varchar("category", { length: 100 }).notNull(),
   title: varchar("title", { length: 180 }).notNull(),
   detail: text("detail").notNull(),
-  actorType: mysqlEnum("actorType", ["agent", "user", "system"]).default("system").notNull(),
+  actorType: actorTypeEnum("actorType").default("system").notNull(),
   actorRef: varchar("actorRef", { length: 120 }).notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  createdAt: ts("createdAt").defaultNow().notNull(),
 });
 
-export const evaluations = mysqlTable("evaluations", {
-  id: int("id").autoincrement().primaryKey(),
-  agentId: int("agentId").notNull(),
+export const evaluations = pgTable("evaluations", {
+  id: serial("id").primaryKey(),
+  agentId: integer("agentId").notNull(),
   name: varchar("name", { length: 160 }).notNull(),
-  status: mysqlEnum("status", ["draft", "running", "passed", "failed"]).default("draft").notNull(),
-  score: int("score").default(0).notNull(),
-  policyPassRate: int("policyPassRate").default(0).notNull(),
+  status: evaluationStatusEnum("status").default("draft").notNull(),
+  score: integer("score").default(0).notNull(),
+  policyPassRate: integer("policyPassRate").default(0).notNull(),
   summary: text("summary").notNull(),
-  executedAt: timestamp("executedAt").defaultNow().notNull(),
+  executedAt: ts("executedAt").defaultNow().notNull(),
 });
 
-export const evaluationCases = mysqlTable("evaluationCases", {
-  id: int("id").autoincrement().primaryKey(),
-  evaluationId: int("evaluationId").notNull(),
+export const evaluationCases = pgTable("evaluationCases", {
+  id: serial("id").primaryKey(),
+  evaluationId: integer("evaluationId").notNull(),
   name: varchar("name", { length: 160 }).notNull(),
   expectedOutcome: text("expectedOutcome").notNull(),
   actualOutcome: text("actualOutcome").notNull(),
-  status: mysqlEnum("status", ["passed", "failed", "warning"]).notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  status: evaluationCaseStatusEnum("status").notNull(),
+  createdAt: ts("createdAt").defaultNow().notNull(),
 });
 
-export const guardrailEvents = mysqlTable("guardrailEvents", {
-  id: int("id").autoincrement().primaryKey(),
-  agentId: int("agentId").notNull(),
-  actionId: int("actionId"),
-  triggerType: mysqlEnum("triggerType", ["policy_violation", "cost_threshold", "tool_anomaly", "latency_spike"]).notNull(),
-  status: mysqlEnum("status", ["monitoring", "stopped", "resolved"]).default("monitoring").notNull(),
+export const guardrailEvents = pgTable("guardrailEvents", {
+  id: serial("id").primaryKey(),
+  agentId: integer("agentId").notNull(),
+  actionId: integer("actionId"),
+  triggerType: guardrailTriggerEnum("triggerType").notNull(),
+  status: guardrailStatusEnum("status").default("monitoring").notNull(),
   thresholdLabel: varchar("thresholdLabel", { length: 160 }).notNull(),
   detail: text("detail").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  createdAt: ts("createdAt").defaultNow().notNull(),
 });
 
-export const metricSnapshots = mysqlTable("metricSnapshots", {
-  id: int("id").autoincrement().primaryKey(),
-  agentId: int("agentId"),
-  latencyMs: int("latencyMs").default(0).notNull(),
-  errorRate: decimal("errorRate", { precision: 5, scale: 2 }).default("0.00").notNull(),
-  apiCostUsd: decimal("apiCostUsd", { precision: 10, scale: 2 }).default("0.00").notNull(),
-  tokenUsage: int("tokenUsage").default(0).notNull(),
+export const metricSnapshots = pgTable("metricSnapshots", {
+  id: serial("id").primaryKey(),
+  agentId: integer("agentId"),
+  latencyMs: integer("latencyMs").default(0).notNull(),
+  errorRate: numeric("errorRate", { precision: 5, scale: 2 }).default("0.00").notNull(),
+  apiCostUsd: numeric("apiCostUsd", { precision: 10, scale: 2 }).default("0.00").notNull(),
+  tokenUsage: integer("tokenUsage").default(0).notNull(),
   windowLabel: varchar("windowLabel", { length: 40 }).notNull(),
-  capturedAt: timestamp("capturedAt").defaultNow().notNull(),
+  capturedAt: ts("capturedAt").defaultNow().notNull(),
 });
 
-export const swarmMessages = mysqlTable("swarmMessages", {
-  id: int("id").autoincrement().primaryKey(),
-  swarmId: int("swarmId").notNull(),
-  communicationLinkId: int("communicationLinkId").notNull(),
-  senderAgentId: int("senderAgentId").notNull(),
+export const swarmMessages = pgTable("swarmMessages", {
+  id: serial("id").primaryKey(),
+  swarmId: integer("swarmId").notNull(),
+  communicationLinkId: integer("communicationLinkId").notNull(),
+  senderAgentId: integer("senderAgentId").notNull(),
   senderAgentName: varchar("senderAgentName", { length: 160 }).notNull(),
   content: text("content").notNull(),
-  kind: mysqlEnum("kind", ["directive", "status", "evidence", "approval"]).notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  kind: swarmMessageKindEnum("kind").notNull(),
+  createdAt: ts("createdAt").defaultNow().notNull(),
 });
 
-export const swarmReportExports = mysqlTable("swarmReportExports", {
-  id: int("id").autoincrement().primaryKey(),
-  swarmId: int("swarmId").notNull(),
-  format: mysqlEnum("format", ["csv", "pdf"]).notNull(),
-  triggerSource: mysqlEnum("triggerSource", ["manual", "approval", "subscription"]).default("manual").notNull(),
-  triggeredByUserId: int("triggeredByUserId"),
+export const swarmReportExports = pgTable("swarmReportExports", {
+  id: serial("id").primaryKey(),
+  swarmId: integer("swarmId").notNull(),
+  format: reportFormatEnum("format").notNull(),
+  triggerSource: triggerSourceEnum("triggerSource").default("manual").notNull(),
+  triggeredByUserId: integer("triggeredByUserId"),
   triggeredByLabel: varchar("triggeredByLabel", { length: 160 }).notNull(),
-  requesterRole: mysqlEnum("requesterRole", ["user", "admin", "system"]).default("user").notNull(),
-  reportWindowHours: int("reportWindowHours").default(24).notNull(),
-  communicationLinkCount: int("communicationLinkCount").default(0).notNull(),
-  approvalMessageCount: int("approvalMessageCount").default(0).notNull(),
-  overdueLinkCount: int("overdueLinkCount").default(0).notNull(),
-  averageResponseMinutes: int("averageResponseMinutes").default(0).notNull(),
+  requesterRole: systemRoleEnum("requesterRole").default("user").notNull(),
+  reportWindowHours: integer("reportWindowHours").default(24).notNull(),
+  communicationLinkCount: integer("communicationLinkCount").default(0).notNull(),
+  approvalMessageCount: integer("approvalMessageCount").default(0).notNull(),
+  overdueLinkCount: integer("overdueLinkCount").default(0).notNull(),
+  averageResponseMinutes: integer("averageResponseMinutes").default(0).notNull(),
   metadata: text("metadata"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  createdAt: ts("createdAt").defaultNow().notNull(),
 });
 
-export const swarmReportDownloadApprovals = mysqlTable("swarmReportDownloadApprovals", {
-  id: int("id").autoincrement().primaryKey(),
-  swarmId: int("swarmId").notNull(),
-  format: mysqlEnum("format", ["csv", "pdf"]).notNull(),
-  requestStatus: mysqlEnum("requestStatus", ["pending", "approved", "rejected", "consumed"]).default("pending").notNull(),
+export const swarmReportDownloadApprovals = pgTable("swarmReportDownloadApprovals", {
+  id: serial("id").primaryKey(),
+  swarmId: integer("swarmId").notNull(),
+  format: reportFormatEnum("format").notNull(),
+  requestStatus: downloadRequestStatusEnum("requestStatus").default("pending").notNull(),
   requiredRoleLabel: varchar("requiredRoleLabel", { length: 160 }).notNull(),
-  requestedByUserId: int("requestedByUserId"),
+  requestedByUserId: integer("requestedByUserId"),
   requestedByLabel: varchar("requestedByLabel", { length: 160 }).notNull(),
-  requestedBySystemRole: mysqlEnum("requestedBySystemRole", ["user", "admin"]).default("user").notNull(),
-  approvedByUserId: int("approvedByUserId"),
+  requestedBySystemRole: userRoleEnum("requestedBySystemRole").default("user").notNull(),
+  approvedByUserId: integer("approvedByUserId"),
   approvedByLabel: varchar("approvedByLabel", { length: 160 }),
   reason: text("reason").notNull(),
-  exportWindowHours: int("exportWindowHours").default(24).notNull(),
+  exportWindowHours: integer("exportWindowHours").default(24).notNull(),
   sensitivityLabel: varchar("sensitivityLabel", { length: 180 }).notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  resolvedAt: timestamp("resolvedAt"),
-  consumedAt: timestamp("consumedAt"),
+  createdAt: ts("createdAt").defaultNow().notNull(),
+  resolvedAt: ts("resolvedAt"),
+  consumedAt: ts("consumedAt"),
 });
 
-export const swarmReportSubscriptions = mysqlTable("swarmReportSubscriptions", {
-  id: int("id").autoincrement().primaryKey(),
-  swarmId: int("swarmId").notNull(),
-  cadence: mysqlEnum("cadence", ["daily", "weekly", "monthly"]).notNull(),
-  format: mysqlEnum("format", ["csv", "pdf"]).notNull(),
+export const swarmReportSubscriptions = pgTable("swarmReportSubscriptions", {
+  id: serial("id").primaryKey(),
+  swarmId: integer("swarmId").notNull(),
+  cadence: cadenceEnum("cadence").notNull(),
+  format: reportFormatEnum("format").notNull(),
   recipientRoleLabel: varchar("recipientRoleLabel", { length: 160 }).notNull(),
-  createdByUserId: int("createdByUserId"),
+  createdByUserId: integer("createdByUserId"),
   createdByLabel: varchar("createdByLabel", { length: 160 }).notNull(),
-  isActive: mysqlEnum("isActive", ["true", "false"]).default("true").notNull(),
-  startImmediately: mysqlEnum("startImmediately", ["true", "false"]).default("false").notNull(),
-  nextRunAt: timestamp("nextRunAt").notNull(),
-  lastRunAt: timestamp("lastRunAt"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  isActive: boolishEnum("isActive").default("true").notNull(),
+  startImmediately: boolishEnum("startImmediately").default("false").notNull(),
+  nextRunAt: ts("nextRunAt").notNull(),
+  lastRunAt: ts("lastRunAt"),
+  createdAt: ts("createdAt").defaultNow().notNull(),
+  updatedAt: ts("updatedAt").defaultNow().notNull().$onUpdate(() => new Date()),
 });
 
-export const swarmAutonomyRuns = mysqlTable("swarmAutonomyRuns", {
-  id: int("id").autoincrement().primaryKey(),
-  swarmId: int("swarmId").notNull(),
+export const swarmAutonomyRuns = pgTable("swarmAutonomyRuns", {
+  id: serial("id").primaryKey(),
+  swarmId: integer("swarmId").notNull(),
   objective: text("objective").notNull(),
   context: text("context"),
-  priority: mysqlEnum("priority", ["standard", "urgent", "critical"]).default("standard").notNull(),
-  status: mysqlEnum("status", ["planned", "running", "awaiting_approval", "blocked", "paused", "completed", "cancelled", "failed"]).default("planned").notNull(),
-  governanceStatus: mysqlEnum("governanceStatus", ["clear", "approval_required", "blocked"]).default("clear").notNull(),
-  requestedByUserId: int("requestedByUserId"),
+  priority: autonomyPriorityEnum("priority").default("standard").notNull(),
+  status: autonomyRunStatusEnum("status").default("planned").notNull(),
+  governanceStatus: governanceStatusEnum("governanceStatus").default("clear").notNull(),
+  requestedByUserId: integer("requestedByUserId"),
   requestedByLabel: varchar("requestedByLabel", { length: 160 }).notNull(),
-  requestedByRole: mysqlEnum("requestedByRole", ["user", "admin", "system"]).default("user").notNull(),
+  requestedByRole: systemRoleEnum("requestedByRole").default("user").notNull(),
   summary: text("summary").notNull(),
-  startedAt: timestamp("startedAt"),
-  completedAt: timestamp("completedAt"),
-  lastEventAt: timestamp("lastEventAt").defaultNow().notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  startedAt: ts("startedAt"),
+  completedAt: ts("completedAt"),
+  lastEventAt: ts("lastEventAt").defaultNow().notNull(),
+  createdAt: ts("createdAt").defaultNow().notNull(),
+  updatedAt: ts("updatedAt").defaultNow().notNull().$onUpdate(() => new Date()),
 });
 
-export const swarmAutonomySteps = mysqlTable("swarmAutonomySteps", {
-  id: int("id").autoincrement().primaryKey(),
-  runId: int("runId").notNull(),
-  swarmId: int("swarmId").notNull(),
-  assignedAgentId: int("assignedAgentId").notNull(),
+export const swarmAutonomySteps = pgTable("swarmAutonomySteps", {
+  id: serial("id").primaryKey(),
+  runId: integer("runId").notNull(),
+  swarmId: integer("swarmId").notNull(),
+  assignedAgentId: integer("assignedAgentId").notNull(),
   assignedAgentName: varchar("assignedAgentName", { length: 160 }).notNull(),
   title: varchar("title", { length: 180 }).notNull(),
   instructions: text("instructions").notNull(),
-  status: mysqlEnum("status", ["pending", "in_progress", "completed", "blocked", "awaiting_input", "skipped", "cancelled"]).default("pending").notNull(),
-  sequence: int("sequence").notNull(),
-  dependsOnStepId: int("dependsOnStepId"),
+  status: autonomyStepStatusEnum("status").default("pending").notNull(),
+  sequence: integer("sequence").notNull(),
+  dependsOnStepId: integer("dependsOnStepId"),
   output: text("output"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-  completedAt: timestamp("completedAt"),
+  createdAt: ts("createdAt").defaultNow().notNull(),
+  updatedAt: ts("updatedAt").defaultNow().notNull().$onUpdate(() => new Date()),
+  completedAt: ts("completedAt"),
 });
 
-export const swarmAutonomyEvents = mysqlTable("swarmAutonomyEvents", {
-  id: int("id").autoincrement().primaryKey(),
-  runId: int("runId").notNull(),
-  swarmId: int("swarmId").notNull(),
-  stepId: int("stepId"),
-  eventType: mysqlEnum("eventType", ["planned", "delegated", "feedback", "governance", "paused", "resumed", "cancelled", "completed", "failed"]).notNull(),
+export const swarmAutonomyEvents = pgTable("swarmAutonomyEvents", {
+  id: serial("id").primaryKey(),
+  runId: integer("runId").notNull(),
+  swarmId: integer("swarmId").notNull(),
+  stepId: integer("stepId"),
+  eventType: autonomyEventTypeEnum("eventType").notNull(),
   actorLabel: varchar("actorLabel", { length: 160 }).notNull(),
   detail: text("detail").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  createdAt: ts("createdAt").defaultNow().notNull(),
 });
 
 export type User = typeof users.$inferSelect;

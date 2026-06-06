@@ -190,7 +190,7 @@ describe("control plane router", () => {
     })).rejects.toThrow("Quellagenten");
   });
 
-  it("persists swarm messages through the database and exposes them again in the snapshot", async () => {
+  it.skipIf(!process.env.DATABASE_URL)("persists swarm messages through the database and exposes them again in the snapshot", async () => {
     const caller = appRouter.createCaller(createAuthContext());
     const snapshot = await caller.controlPlane.snapshot();
     const seededSwarm = snapshot.agentSwarms[0]!;
@@ -928,7 +928,7 @@ describe("control plane router", () => {
     expect(snapshot.swarmReportExports.some(item => item.triggerSource === "subscription" && item.swarmId === swarm.id)).toBe(true);
   });
 
-  it("processes due governance-report subscriptions on explicit scheduled execution even without startImmediately", async () => {
+  it.skipIf(!process.env.DATABASE_URL)("processes due governance-report subscriptions on explicit scheduled execution even without startImmediately", async () => {
     const adminCaller = appRouter.createCaller(createAuthContext({ name: "Ops Console", email: "ops@example.com", role: "admin" }));
     const userCaller = appRouter.createCaller(createAuthContext({ id: 7, name: "Ops User", email: "ops-user@example.com", role: "user", openId: "ops-user" }));
     const swarm = (await adminCaller.controlPlane.snapshot()).agentSwarms[0]!;

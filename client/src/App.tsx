@@ -17,6 +17,7 @@ import Home, {
   PoliciesPage,
 } from "./pages/ControlPlane";
 import HelpCenterPage from "./pages/HelpCenter";
+import Login from "./pages/Login";
 
 function DashboardShell({ children }: { children: React.ReactNode }) {
   return <DashboardLayout>{children}</DashboardLayout>;
@@ -25,6 +26,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
 function Router() {
   return (
     <Switch>
+      <Route path="/login" component={Login} />
       <Route path="/">
         <DashboardShell>
           <Home />

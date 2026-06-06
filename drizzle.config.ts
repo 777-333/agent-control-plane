@@ -1,14 +1,13 @@
 import { defineConfig } from "drizzle-kit";
 
-const connectionString = process.env.DATABASE_URL;
-if (!connectionString) {
-  throw new Error("DATABASE_URL is required to run drizzle commands");
-}
+// `drizzle-kit generate` works offline (no DB needed). `migrate`/`push` require
+// a real DATABASE_URL and will fail clearly if it is empty.
+const connectionString = process.env.DATABASE_URL ?? "";
 
 export default defineConfig({
   schema: "./drizzle/schema.ts",
   out: "./drizzle",
-  dialect: "mysql",
+  dialect: "postgresql",
   dbCredentials: {
     url: connectionString,
   },

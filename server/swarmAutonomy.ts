@@ -280,10 +280,8 @@ async function insertRun(db: DatabaseLike, values: typeof swarmAutonomyRuns.$inf
     return record;
   }
 
-  const result = await db.insert(swarmAutonomyRuns).values(values);
-  const runId = Number(result[0].insertId);
-  const rows = await db.select().from(swarmAutonomyRuns).where(eq(swarmAutonomyRuns.id, runId));
-  return mapRunRow(rows[0]!);
+  const inserted = await db.insert(swarmAutonomyRuns).values(values).returning();
+  return mapRunRow(inserted[0]!);
 }
 
 async function insertSteps(db: DatabaseLike, values: Array<typeof swarmAutonomySteps.$inferInsert>): Promise<SwarmAutonomyStepRecord[]> {
@@ -332,10 +330,8 @@ async function insertEvent(db: DatabaseLike, values: typeof swarmAutonomyEvents.
     return event;
   }
 
-  const result = await db.insert(swarmAutonomyEvents).values(values);
-  const eventId = Number(result[0].insertId);
-  const rows = await db.select().from(swarmAutonomyEvents).where(eq(swarmAutonomyEvents.id, eventId));
-  return mapEventRow(rows[0]!);
+  const inserted = await db.insert(swarmAutonomyEvents).values(values).returning();
+  return mapEventRow(inserted[0]!);
 }
 
 async function updateRun(db: DatabaseLike, runId: number, values: Partial<typeof swarmAutonomyRuns.$inferInsert>): Promise<SwarmAutonomyRunRecord> {

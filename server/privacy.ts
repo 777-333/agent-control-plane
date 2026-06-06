@@ -363,6 +363,27 @@ export function resetCustomPrivacyRules() {
   nextPrivacyRuleId = 1;
 }
 
+/** Snapshot the custom privacy rules for JSONB write-through persistence. */
+export function exportCustomPrivacyRules() {
+  return {
+    rules: customPrivacyRules.map(rule => ({ ...rule, keywords: [...rule.keywords] })),
+    nextId: nextPrivacyRuleId,
+  };
+}
+
+/** Restore custom privacy rules from a persisted snapshot. */
+export function importCustomPrivacyRules(
+  state: { rules?: PrivacyRuleRecord[]; nextId?: number } | null | undefined
+) {
+  if (!state || !Array.isArray(state.rules)) return;
+  customPrivacyRules = state.rules.map(rule => ({
+    ...rule,
+    keywords: [...(rule.keywords ?? [])],
+  }));
+  const maxId = customPrivacyRules.reduce((max, rule) => Math.max(max, rule.id), 0);
+  nextPrivacyRuleId = Math.max(state.nextId ?? 1, maxId + 1);
+}
+
 export function sanitizeTextForPrivacy(
   input: string,
   options: PrivacySanitizationOptions = {},

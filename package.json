@@ -1,6 +1,6 @@
 {
   "name": "agent-control-plane",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "license": "MIT",
   "scripts": {
@@ -10,6 +10,9 @@
     "check": "tsc --noEmit",
     "format": "prettier --write .",
     "test": "vitest run",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:seed": "tsx scripts/seed.ts",
     "db:push": "drizzle-kit generate && drizzle-kit migrate"
   },
   "dependencies": {
@@ -42,6 +45,8 @@
     "@radix-ui/react-toggle": "^1.1.10",
     "@radix-ui/react-toggle-group": "^1.1.11",
     "@radix-ui/react-tooltip": "^1.2.8",
+    "@sentry/node": "^10.56.0",
+    "@supabase/supabase-js": "^2.107.0",
     "@tanstack/react-query": "^5.90.2",
     "@trpc/client": "^11.6.0",
     "@trpc/react-query": "^11.6.0",
@@ -56,7 +61,9 @@
     "drizzle-orm": "^0.44.5",
     "embla-carousel-react": "^8.6.0",
     "express": "^4.21.2",
+    "express-rate-limit": "^8.5.2",
     "framer-motion": "^12.23.22",
+    "helmet": "^8.2.0",
     "input-otp": "^1.4.2",
     "jose": "6.1.0",
     "jspdf": "^4.2.1",
@@ -64,6 +71,9 @@
     "mysql2": "^3.15.0",
     "nanoid": "^5.1.5",
     "next-themes": "^0.4.6",
+    "pino": "^10.3.1",
+    "pino-http": "^11.0.0",
+    "postgres": "^3.4.9",
     "react": "^19.2.1",
     "react-day-picker": "^9.11.1",
     "react-dom": "^19.2.1",
@@ -115,6 +125,11 @@
     },
     "overrides": {
       "tailwindcss>nanoid": "3.3.7"
-    }
+    },
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "@tailwindcss/oxide",
+      "core-js"
+    ]
   }
 }

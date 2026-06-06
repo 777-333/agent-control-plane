@@ -74,18 +74,14 @@ export async function notifyOwner(
 ): Promise<boolean> {
   const { title, content } = sanitizeNotificationPayload(payload);
 
-  if (!ENV.forgeApiUrl) {
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: "Notification service URL is not configured.",
-    });
-  }
-
-  if (!ENV.forgeApiKey) {
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: "Notification service API key is not configured.",
-    });
+  // The notification channel is optional/best-effort: when it is not
+  // configured, log and return false instead of failing the calling
+  // governance operation (e.g. approval escalation must still succeed).
+  if (!ENV.forgeApiUrl || !ENV.forgeApiKey) {
+    console.warn(
+      "[Notification] Notification service is not configured – skipping owner notification."
+    );
+    return false;
   }
 
   const endpoint = buildEndpointUrl(ENV.forgeApiUrl);
