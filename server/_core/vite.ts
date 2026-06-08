@@ -1,21 +1,24 @@
 import express, { type Express } from "express";
 import fs from "fs";
 import { type Server } from "http";
-import { nanoid } from "nanoid";
 import path from "path";
-import { createServer as createViteServer } from "vite";
-import viteConfig from "../../vite.config";
 
 export async function setupVite(app: Express, server: Server) {
+  // Dev-only dependencies are imported dynamically so they are never required
+  // in the production runtime image (which does not install devDependencies).
+  const { createServer: createViteServer } = await import("vite");
+  const { nanoid } = await import("nanoid");
+
   const serverOptions = {
     middlewareMode: true,
     hmr: { server },
     allowedHosts: true as const,
   };
 
+  // Let Vite load the config from disk in dev. We deliberately do NOT import
+  // vite.config here, so esbuild never pulls Vite/plugins into the prod bundle.
   const vite = await createViteServer({
-    ...viteConfig,
-    configFile: false,
+    configFile: path.resolve(import.meta.dirname, "../../vite.config.ts"),
     server: serverOptions,
     appType: "custom",
   });
