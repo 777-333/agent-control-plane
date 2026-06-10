@@ -10,7 +10,9 @@ import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import {
+  checkActionPolicy,
   createGuardrailEvent,
+  getApprovalDecision,
   initPersistence,
   recordAuditEvent,
   recordMetricSnapshot,
@@ -39,6 +41,23 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
     }
   }
   throw new Error(`No available port found starting from ${startPort}`);
+}
+
+function hasValidIngestToken(req: express.Request): boolean {
+  const header = req.headers.authorization;
+  const token =
+    typeof header === "string" && header.toLowerCase().startsWith("bearer ")
+      ? header.slice(7).trim()
+      : undefined;
+  return Boolean(ENV.ingestToken) && token === ENV.ingestToken;
+}
+
+const RISK_LEVELS = ["low", "medium", "high", "critical"] as const;
+type RiskLevelInput = (typeof RISK_LEVELS)[number];
+function coerceRiskLevel(value: unknown): RiskLevelInput | undefined {
+  return typeof value === "string" && (RISK_LEVELS as readonly string[]).includes(value)
+    ? (value as RiskLevelInput)
+    : undefined;
 }
 
 async function startServer() {
@@ -130,6 +149,68 @@ async function startServer() {
         error: error instanceof Error ? error.message : "Ingestion failed",
       });
     }
+  });
+
+  // Synchronous policy decision: an agent asks BEFORE acting.
+  app.post("/api/policy-check", (req, res) => {
+    if (!hasValidIngestToken(req)) {
+      res.status(401).json({ ok: false, error: "Unauthorized" });
+      return;
+    }
+
+    const body = req.body as {
+      agentId?: unknown;
+      actionType?: unknown;
+      summary?: unknown;
+      riskLevel?: unknown;
+      requestedBy?: unknown;
+    };
+
+    if (typeof body.agentId !== "number" || typeof body.actionType !== "string") {
+      res.status(400).json({
+        ok: false,
+        error: "agentId (number) and actionType (string) are required",
+      });
+      return;
+    }
+
+    try {
+      const result = checkActionPolicy({
+        agentId: body.agentId,
+        actionType: body.actionType,
+        summary: typeof body.summary === "string" ? body.summary : undefined,
+        riskLevel: coerceRiskLevel(body.riskLevel),
+        requestedBy: typeof body.requestedBy === "string" ? body.requestedBy : undefined,
+      });
+      res.json({ ok: true, ...result });
+    } catch (error) {
+      res.status(400).json({
+        ok: false,
+        error: error instanceof Error ? error.message : "Policy check failed",
+      });
+    }
+  });
+
+  // Poll the status of an approval created by a policy check.
+  app.get("/api/approval-status/:id", (req, res) => {
+    if (!hasValidIngestToken(req)) {
+      res.status(401).json({ ok: false, error: "Unauthorized" });
+      return;
+    }
+
+    const approvalId = Number(req.params.id);
+    if (!Number.isInteger(approvalId)) {
+      res.status(400).json({ ok: false, error: "Invalid approval id" });
+      return;
+    }
+
+    const decision = getApprovalDecision(approvalId);
+    if (!decision) {
+      res.status(404).json({ ok: false, error: "Approval not found" });
+      return;
+    }
+
+    res.json({ ok: true, approvalId, status: decision.status, title: decision.title });
   });
 
   // tRPC API (rate-limited)

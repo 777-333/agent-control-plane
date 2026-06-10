@@ -2578,6 +2578,197 @@ export function recordMetricSnapshot(input: IngestMetricInput) {
   return snapshot;
 }
 
+// --- Synchronous policy decision (Option B: agents ask before acting) -------
+// An external agent runtime calls /api/policy-check BEFORE performing an
+// action. The control plane evaluates the stored policies and returns
+// allowed / forbidden / approval_required. For approval_required a real
+// Approval is created so a human can decide in the Approval Workflow, and the
+// agent polls /api/approval-status until it resolves.
+
+export type PolicyDecision = "allowed" | "forbidden" | "approval_required";
+
+function actionPatternToRegex(pattern: string): RegExp {
+  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+  return new RegExp(`^${escaped}$`, "i");
+}
+
+function policyAppliesToAgent(policy: PolicyRecord, agent: AgentRecord): boolean {
+  switch (policy.scopeType) {
+    case "global":
+      return true;
+    case "agent":
+      return policy.scopeRef === agent.name;
+    case "team":
+      return policy.scopeRef === agent.team;
+    case "connector":
+      return agent.tools.includes(policy.scopeRef);
+    default:
+      return false;
+  }
+}
+
+/** Evaluate stored policies for an action. Lowest `priority` number wins. */
+export function evaluateActionPolicy(input: { agentId: number; actionType: string }): {
+  decision: PolicyDecision;
+  matchedPolicy: PolicyRecord | null;
+} {
+  const agent = agentsData.find(item => item.id === input.agentId);
+  if (!agent) {
+    throw new Error("Agent not found");
+  }
+
+  const matches = policiesData
+    .filter(
+      policy =>
+        policy.isActive &&
+        policyAppliesToAgent(policy, agent) &&
+        actionPatternToRegex(policy.actionPattern).test(input.actionType)
+    )
+    .sort((a, b) => a.priority - b.priority);
+
+  if (matches.length === 0) {
+    return { decision: "allowed", matchedPolicy: null };
+  }
+  return { decision: matches[0].effect, matchedPolicy: matches[0] };
+}
+
+/** Create a pending human approval for a policy-gated action. */
+export function requestActionApproval(input: {
+  agentId: number;
+  actionType: string;
+  summary: string;
+  riskLevel?: RiskLevel;
+  requestedBy?: string;
+}): ApprovalRecord {
+  const agent = agentsData.find(item => item.id === input.agentId);
+  if (!agent) {
+    throw new Error("Agent not found");
+  }
+
+  const timestamp = Date.now();
+  const id = approvalsData.reduce((max, item) => Math.max(max, item.id), 0) + 1;
+  const actionId =
+    approvalsData.reduce((max, item) => Math.max(max, item.actionId), 9000) + 1;
+  const stageId =
+    approvalsData.reduce(
+      (max, item) => Math.max(max, ...item.stages.map(stage => stage.id), 0),
+      500
+    ) + 1;
+
+  const approval: ApprovalRecord = {
+    id,
+    agentId: agent.id,
+    actionId,
+    agentName: agent.name,
+    title: `Freigabe: ${input.actionType}`,
+    summary: input.summary,
+    status: "pending",
+    riskLevel: input.riskLevel ?? agent.riskLevel,
+    requestedAt: timestamp,
+    requestedBy: input.requestedBy ?? agent.name,
+    chainId: 0,
+    chainName: "Policy-Auslösung (automatisch)",
+    escalationStatus: "none",
+    currentStageOrder: 1,
+    stages: [
+      {
+        id: stageId,
+        order: 1,
+        name: "Freigabe erforderlich",
+        requiredRole: "approver",
+        ownerLabel: agent.team || "Governance",
+        status: "pending",
+        startedAt: timestamp,
+        slaMinutes: 60,
+        escalationAfterMinutes: 120,
+        escalationTarget: "Head of Governance",
+      },
+    ],
+  };
+
+  approvalsData.unshift(approval);
+  addAuditEvent({
+    agentId: agent.id,
+    agentName: agent.name,
+    severity: "warning",
+    category: "Approval Workflow",
+    title: "Freigabe angefordert (Policy)",
+    detail: `Aktion "${input.actionType}" erfordert laut Policy eine menschliche Freigabe. ${input.summary}`,
+    actorType: "agent",
+    actorRef: agent.name,
+  });
+
+  return approval;
+}
+
+/** Full decision used by POST /api/policy-check. */
+export function checkActionPolicy(input: {
+  agentId: number;
+  actionType: string;
+  summary?: string;
+  riskLevel?: RiskLevel;
+  requestedBy?: string;
+}): { decision: PolicyDecision; policyName: string | null; approvalId?: number; reason?: string } {
+  const agent = agentsData.find(item => item.id === input.agentId);
+  if (!agent) {
+    throw new Error("Agent not found");
+  }
+
+  const { decision, matchedPolicy } = evaluateActionPolicy({
+    agentId: input.agentId,
+    actionType: input.actionType,
+  });
+  const summary = input.summary ?? `${agent.name} möchte "${input.actionType}" ausführen.`;
+
+  if (decision === "forbidden") {
+    addAuditEvent({
+      agentId: agent.id,
+      agentName: agent.name,
+      severity: "critical",
+      category: "Policy Engine",
+      title: "Aktion blockiert",
+      detail: `"${input.actionType}" wurde durch Policy "${matchedPolicy?.name}" verboten.`,
+      actorType: "system",
+      actorRef: "policy-engine",
+    });
+    return { decision, policyName: matchedPolicy?.name ?? null, reason: matchedPolicy?.description };
+  }
+
+  if (decision === "approval_required") {
+    const approval = requestActionApproval({
+      agentId: agent.id,
+      actionType: input.actionType,
+      summary,
+      riskLevel: input.riskLevel,
+      requestedBy: input.requestedBy,
+    });
+    return { decision, policyName: matchedPolicy?.name ?? null, approvalId: approval.id };
+  }
+
+  addAuditEvent({
+    agentId: agent.id,
+    agentName: agent.name,
+    severity: "info",
+    category: "Policy Engine",
+    title: "Aktion erlaubt",
+    detail: matchedPolicy
+      ? `"${input.actionType}" wurde durch Policy "${matchedPolicy.name}" erlaubt.`
+      : `"${input.actionType}" – keine einschränkende Policy, erlaubt.`,
+    actorType: "system",
+    actorRef: "policy-engine",
+  });
+  return { decision, policyName: matchedPolicy?.name ?? null };
+}
+
+/** Read the current status of an approval (used by /api/approval-status). */
+export function getApprovalDecision(
+  approvalId: number
+): { status: ApprovalStatus; title: string } | null {
+  const approval = approvalsData.find(item => item.id === approvalId);
+  if (!approval) return null;
+  return { status: approval.status, title: approval.title };
+}
+
 export async function getAccessOverview() {
   return {
     teams: teamsData,
