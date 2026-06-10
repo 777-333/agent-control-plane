@@ -6,7 +6,6 @@ import { SignJWT, jwtVerify } from "jose";
 import type { User } from "../../drizzle/schema";
 import * as db from "../db";
 import { ENV } from "./env";
-import { getSupabaseAdmin } from "./supabase";
 
 // Utility function
 const isNonEmptyString = (value: unknown): value is string =>
@@ -111,25 +110,41 @@ class SDKServer {
    * Verify a Supabase access token and return the normalized identity.
    * Used during login to exchange a Supabase session for our session cookie.
    */
+  /**
+   * Verify a Supabase access token locally by validating its HS256 signature
+   * with the Supabase JWT secret. This avoids constructing a supabase-js client
+   * (which requires a WebSocket runtime) and needs no network call.
+   */
   async verifySupabaseToken(accessToken: string): Promise<SupabaseIdentity> {
-    const supabase = getSupabaseAdmin();
-    if (!supabase) {
-      throw ForbiddenError("Supabase authentication is not configured");
+    if (!ENV.supabaseJwtSecret) {
+      throw ForbiddenError("Supabase JWT secret is not configured");
     }
 
-    const { data, error } = await supabase.auth.getUser(accessToken);
-    if (error || !data?.user) {
+    let payload: Record<string, unknown>;
+    try {
+      const secret = new TextEncoder().encode(ENV.supabaseJwtSecret);
+      const verified = await jwtVerify(accessToken, secret, {
+        algorithms: ["HS256"],
+      });
+      payload = verified.payload as Record<string, unknown>;
+    } catch (error) {
+      console.warn("[Auth] Supabase token verification failed", String(error));
       throw ForbiddenError("Invalid Supabase access token");
     }
 
-    const user = data.user;
-    const metadata = (user.user_metadata ?? {}) as Record<string, unknown>;
-    const appMetadata = (user.app_metadata ?? {}) as Record<string, unknown>;
+    const sub = payload.sub;
+    if (typeof sub !== "string" || sub.length === 0) {
+      throw ForbiddenError("Supabase token is missing a subject");
+    }
+
+    const email = typeof payload.email === "string" ? payload.email : null;
+    const metadata = (payload.user_metadata ?? {}) as Record<string, unknown>;
+    const appMetadata = (payload.app_metadata ?? {}) as Record<string, unknown>;
 
     const name =
       (typeof metadata.full_name === "string" && metadata.full_name) ||
       (typeof metadata.name === "string" && metadata.name) ||
-      user.email ||
+      email ||
       null;
 
     const provider =
@@ -137,8 +152,8 @@ class SDKServer {
       "email";
 
     return {
-      openId: user.id,
-      email: user.email ?? null,
+      openId: sub,
+      email,
       name,
       loginMethod: provider,
     };
