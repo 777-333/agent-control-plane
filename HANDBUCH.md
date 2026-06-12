@@ -116,6 +116,15 @@ acp.ingest_metric(agent_id=5, latency_ms=820, error_rate=0.0,
 
 Ein vollständiges Beispiel inkl. Claude-Aufruf: `examples/python_agent.py`.
 
+**JavaScript/TypeScript-SDK** (`sdk/js`, für Node.js-Agenten):
+```js
+import { AgentControlPlane } from "agent-control-plane";
+const acp = new AgentControlPlane("https://acc.3333.tools", "acp_DEIN_API_KEY");
+await acp.ensureAllowed(5, "erp.payment.execute");
+await acp.ingestAudit(5, { category: "ERP", title: "Zahlung ausgeführt", detail: "…" });
+```
+Vollständiges Beispiel: `examples/js_agent.mjs`.
+
 ---
 
 ## 7. Onboarding eines Kunden – Schritt für Schritt
