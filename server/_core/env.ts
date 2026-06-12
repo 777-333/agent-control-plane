@@ -36,6 +36,19 @@ const rawSchema = z.object({
   // Shared secret for the service-to-service event ingestion endpoint.
   INGEST_TOKEN: z.string().default(""),
 
+  // Outbound email (team invitations). Provider: none | resend | smtp.
+  EMAIL_PROVIDER: z.enum(["none", "resend", "smtp"]).default("none"),
+  EMAIL_FROM: z.string().default(""),
+  RESEND_API_KEY: z.string().default(""),
+  SMTP_HOST: z.string().default(""),
+  SMTP_PORT: z.coerce.number().int().positive().default(587),
+  SMTP_USER: z.string().default(""),
+  SMTP_PASS: z.string().default(""),
+  SMTP_SECURE: z
+    .string()
+    .default("false")
+    .transform(value => value === "true" || value === "1"),
+
   // Development-only convenience login
   OWNER_OPEN_ID: z.string().default(""),
   OWNER_NAME: z.string().default(""),
@@ -94,6 +107,15 @@ export const ENV = {
 
   sentryDsn: parsed.SENTRY_DSN,
   ingestToken: parsed.INGEST_TOKEN,
+
+  emailProvider: parsed.EMAIL_PROVIDER,
+  emailFrom: parsed.EMAIL_FROM,
+  resendApiKey: parsed.RESEND_API_KEY,
+  smtpHost: parsed.SMTP_HOST,
+  smtpPort: parsed.SMTP_PORT,
+  smtpUser: parsed.SMTP_USER,
+  smtpPass: parsed.SMTP_PASS,
+  smtpSecure: parsed.SMTP_SECURE,
 
   ownerOpenId: parsed.OWNER_OPEN_ID,
   ownerName: parsed.OWNER_NAME,

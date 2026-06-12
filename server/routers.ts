@@ -61,6 +61,7 @@ import {
   updateApprovalChainTemplate,
 } from "./db";
 import { notifyOwner } from "./_core/notification";
+import { sendInviteEmail } from "./_core/mailer";
 
 export const appRouter = router({
   system: systemRouter,
@@ -98,9 +99,13 @@ export const appRouter = router({
     myInvites: protectedProcedure.query(({ ctx }) => listInvitesForEmail(ctx.user?.email ?? null)),
     invite: orgAdminProcedure
       .input(z.object({ email: z.string().email(), role: z.enum(["admin", "member", "viewer"]) }))
-      .mutation(({ input, ctx }) =>
-        inviteMember(input.email, input.role, ctx.user?.name ?? ctx.user?.email ?? "Admin")
-      ),
+      .mutation(({ input, ctx }) => {
+        const invitedBy = ctx.user?.name ?? ctx.user?.email ?? "Admin";
+        const overview = inviteMember(input.email, input.role, invitedBy);
+        // Fire-and-forget: never fail the invite because email delivery failed.
+        void sendInviteEmail({ to: input.email, orgName: overview.org.name, role: input.role, invitedBy });
+        return overview;
+      }),
     cancelInvite: orgAdminProcedure
       .input(z.object({ id: z.number().int().positive() }))
       .mutation(({ input }) => cancelInvite(input.id)),
