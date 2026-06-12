@@ -4,6 +4,7 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { InsertUser, appCollections, approvalChains, approvalStages, swarmMessages, users } from "../drizzle/schema";
 import { ENV } from "./_core/env";
+import { currentTenantId, DEFAULT_TENANT, runWithTenant } from "./_core/tenant";
 import {
   applySwarmAutonomyAction as applySwarmAutonomyActionEntry,
   createSwarmAutonomyRun as createSwarmAutonomyRunEntry,
@@ -123,6 +124,36 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
+// --- Multi-tenant helpers ---------------------------------------------------
+// Every business record carries an optional ownerId (the tenant = user openId).
+// Records without ownerId belong to DEFAULT_TENANT (the project owner / seed).
+type Owned = { ownerId?: string };
+
+function tenantOf(record: Owned): string {
+  return record.ownerId ?? DEFAULT_TENANT;
+}
+
+/** Filter a collection to the records owned by the current tenant. */
+function owned<T extends Owned>(records: T[]): T[] {
+  const tenant = currentTenantId();
+  return records.filter(record => tenantOf(record) === tenant);
+}
+
+/** Find a record by predicate, scoped to the current tenant. */
+function findOwned<T extends Owned>(
+  records: T[],
+  predicate: (record: T) => boolean
+): T | undefined {
+  const tenant = currentTenantId();
+  return records.find(record => tenantOf(record) === tenant && predicate(record));
+}
+
+/** Stamp a record (or records) with the current tenant before persisting. */
+function stamp<T extends Owned>(record: T): T {
+  record.ownerId = currentTenantId();
+  return record;
+}
+
 type AgentStatus = "healthy" | "warning" | "paused" | "offline";
 type RiskLevel = "low" | "medium" | "high" | "critical";
 type ApprovalStatus = "pending" | "approved" | "rejected" | "expired";
@@ -133,6 +164,7 @@ type BranchSignalKey = "riskLevel" | "requestedBy" | "agentName" | "title" | "su
 
 type AgentRecord = {
   id: number;
+  ownerId?: string;
   name: string;
   description: string;
   status: AgentStatus;
@@ -191,6 +223,7 @@ type AgentSwarmGovernanceRecord = {
 
 type AgentSwarmRecord = {
   id: number;
+  ownerId?: string;
   name: string;
   mission: string;
   topology: AgentSwarmTopology;
@@ -206,6 +239,7 @@ type AgentSwarmRecord = {
 
 type PolicyRecord = {
   id: number;
+  ownerId?: string;
   name: string;
   scopeType: string;
   scopeRef: string;
@@ -273,6 +307,7 @@ type ApprovalChainCalendarProfileRecord = {
 
 type ApprovalChainTemplateRecord = {
   id: number;
+  ownerId?: string;
   name: string;
   description: string;
   escalationMode: "serial" | "parallel" | "auto_escalate";
@@ -284,6 +319,7 @@ type ApprovalChainTemplateRecord = {
 
 type ApprovalRecord = {
   id: number;
+  ownerId?: string;
   agentId: number;
   actionId: number;
   agentName: string;
@@ -303,6 +339,7 @@ type ApprovalRecord = {
 
 type ApprovalNotificationRecord = {
   id: number;
+  ownerId?: string;
   approvalId: number;
   approvalTitle: string;
   severity: RiskLevel | string;
@@ -316,6 +353,7 @@ type ApprovalNotificationRecord = {
 
 type AuditEventRecord = {
   id: number;
+  ownerId?: string;
   agentId: number;
   agentName: string;
   severity: "info" | "warning" | "critical";
@@ -329,6 +367,7 @@ type AuditEventRecord = {
 
 type ConnectorRecord = {
   id: number;
+  ownerId?: string;
   name: string;
   type: string;
   status: "connected" | "degraded" | "disconnected";
@@ -340,6 +379,7 @@ type ConnectorRecord = {
 
 type EvaluationRecord = {
   id: number;
+  ownerId?: string;
   agentId: number;
   agentName: string;
   name: string;
@@ -352,6 +392,7 @@ type EvaluationRecord = {
 
 type GuardrailRecord = {
   id: number;
+  ownerId?: string;
   agentId: number;
   agentName: string;
   triggerType: string;
@@ -363,6 +404,7 @@ type GuardrailRecord = {
 
 type MetricRecord = {
   id: number;
+  ownerId?: string;
   agentId: number;
   agentName: string;
   latencyMs: number;
@@ -375,6 +417,7 @@ type MetricRecord = {
 
 type TeamRecord = {
   id: number;
+  ownerId?: string;
   name: string;
   members: number;
   owner: string;
@@ -383,6 +426,7 @@ type TeamRecord = {
 
 type PermissionRecord = {
   id: number;
+  ownerId?: string;
   subject: string;
   subjectType: "user" | "team";
   agentName: string;
@@ -1223,6 +1267,7 @@ function addAuditEvent(event: Omit<AuditEventRecord, "id" | "createdAt"> & { cre
     id: auditEventsData.length + 1,
     createdAt: event.createdAt ?? Date.now(),
     ...event,
+    ownerId: event.ownerId ?? currentTenantId(),
     title: sanitizeTextForPrivacy(event.title).sanitizedText,
     detail: sanitizeTextForPrivacy(event.detail).sanitizedText,
     actorRef: sanitizeTextForPrivacy(event.actorRef).sanitizedText,
@@ -1302,13 +1347,24 @@ function refreshLiveMetrics() {
 export async function getDashboardOverview() {
   synchronizeApprovalEscalations();
   refreshLiveMetrics();
-  const activeAgents = agentsData.filter(agent => agent.status !== "offline").length;
-  const pendingApprovals = approvalsData.filter(approval => approval.status === "pending").length;
-  const auditEvents = auditEventsData.length;
-  const totalCost = metricsData.reduce((sum, item) => sum + item.apiCostUsd, 0);
-  const avgLatency = Math.round(metricsData.reduce((sum, item) => sum + item.latencyMs, 0) / metricsData.length);
-  const errorRate = Number((metricsData.reduce((sum, item) => sum + item.errorRate, 0) / metricsData.length).toFixed(2));
-  const totalTokens = metricsData.reduce((sum, item) => sum + item.tokenUsage, 0);
+
+  const agents = owned(agentsData);
+  const approvals = owned(approvalsData);
+  const auditEventsList = owned(auditEventsData);
+  const metrics = owned(metricsData);
+  const guardrails = owned(guardrailsData);
+
+  const activeAgents = agents.filter(agent => agent.status !== "offline").length;
+  const pendingApprovals = approvals.filter(approval => approval.status === "pending").length;
+  const auditEvents = auditEventsList.length;
+  const totalCost = metrics.reduce((sum, item) => sum + item.apiCostUsd, 0);
+  const avgLatency = metrics.length
+    ? Math.round(metrics.reduce((sum, item) => sum + item.latencyMs, 0) / metrics.length)
+    : 0;
+  const errorRate = metrics.length
+    ? Number((metrics.reduce((sum, item) => sum + item.errorRate, 0) / metrics.length).toFixed(2))
+    : 0;
+  const totalTokens = metrics.reduce((sum, item) => sum + item.tokenUsage, 0);
 
   return {
     stats: {
@@ -1321,26 +1377,26 @@ export async function getDashboardOverview() {
       totalTokens,
     },
     agentStatusDistribution: {
-      healthy: agentsData.filter(agent => agent.status === "healthy").length,
-      warning: agentsData.filter(agent => agent.status === "warning").length,
-      paused: agentsData.filter(agent => agent.status === "paused").length,
-      offline: agentsData.filter(agent => agent.status === "offline").length,
+      healthy: agents.filter(agent => agent.status === "healthy").length,
+      warning: agents.filter(agent => agent.status === "warning").length,
+      paused: agents.filter(agent => agent.status === "paused").length,
+      offline: agents.filter(agent => agent.status === "offline").length,
     },
     riskDistribution: {
-      low: agentsData.filter(agent => agent.riskLevel === "low").length,
-      medium: agentsData.filter(agent => agent.riskLevel === "medium").length,
-      high: agentsData.filter(agent => agent.riskLevel === "high").length,
-      critical: agentsData.filter(agent => agent.riskLevel === "critical").length,
+      low: agents.filter(agent => agent.riskLevel === "low").length,
+      medium: agents.filter(agent => agent.riskLevel === "medium").length,
+      high: agents.filter(agent => agent.riskLevel === "high").length,
+      critical: agents.filter(agent => agent.riskLevel === "critical").length,
     },
-    recentAuditEvents: auditEventsData.slice(0, 4),
-    pendingApprovals: approvalsData.filter(approval => approval.status === "pending"),
-    topAgents: agentsData,
-    guardrailHighlights: guardrailsData,
+    recentAuditEvents: auditEventsList.slice(0, 4),
+    pendingApprovals: approvals.filter(approval => approval.status === "pending"),
+    topAgents: agents,
+    guardrailHighlights: guardrails,
   };
 }
 
 export async function listAgents() {
-  return [...agentsData].sort((a, b) => a.name.localeCompare(b.name));
+  return [...owned(agentsData)].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 type AgentMutationInput = {
@@ -1481,12 +1537,12 @@ export async function createAgent(input: AgentMutationInput) {
     successRate: 100,
     tools: [],
   };
-  agentsData.unshift(newAgent);
+  agentsData.unshift(stamp(newAgent));
   return newAgent;
 }
 
 export async function updateAgent(input: AgentMutationInput & { id: number }) {
-  const existingAgent = agentsData.find(agent => agent.id === input.id);
+  const existingAgent = findOwned(agentsData, agent => agent.id === input.id);
 
   if (!existingAgent) {
     throw new Error(`Agent ${input.id} wurde nicht gefunden.`);
@@ -1504,7 +1560,7 @@ export async function updateAgent(input: AgentMutationInput & { id: number }) {
 }
 
 export async function duplicateAgent(input: AgentMutationInput & { sourceAgentId: number }) {
-  const sourceAgent = agentsData.find(agent => agent.id === input.sourceAgentId);
+  const sourceAgent = findOwned(agentsData, agent => agent.id === input.sourceAgentId);
 
   if (!sourceAgent) {
     throw new Error(`Agent ${input.sourceAgentId} wurde nicht gefunden.`);
@@ -1526,7 +1582,7 @@ export async function duplicateAgent(input: AgentMutationInput & { sourceAgentId
     tools: [...sourceAgent.tools],
   };
 
-  agentsData.unshift(duplicatedAgent);
+  agentsData.unshift(stamp(duplicatedAgent));
   return duplicatedAgent;
 }
 
@@ -1623,7 +1679,7 @@ async function loadPersistedSwarmMessages(swarm: AgentSwarmRecord) {
   return clone;
 }
 
-function createSwarmMembers(swarmId: number, input: AgentSwarmMutationInput, createdAt: number) {
+function createSwarmMembers(swarmId: number, input: AgentSwarmMutationInput, createdAt: number): AgentRecord[] {
   return input.members.map((member, index) => ({
     id: nextAgentId++,
     name: member.name,
@@ -1648,7 +1704,7 @@ function createSwarmMembers(swarmId: number, input: AgentSwarmMutationInput, cre
 }
 
 export async function listAgentSwarms() {
-  const swarms = await Promise.all(agentSwarmsData.map(swarm => loadPersistedSwarmMessages(swarm)));
+  const swarms = await Promise.all(owned(agentSwarmsData).map(swarm => loadPersistedSwarmMessages(swarm)));
   return swarms.sort((a, b) => b.createdAt - a.createdAt);
 }
 
@@ -1677,8 +1733,8 @@ export async function createAgentSwarm(input: AgentSwarmMutationInput) {
     governance: { ...input.governance },
   };
 
-  agentsData.unshift(...swarmMembers.slice().reverse());
-  agentSwarmsData.unshift(swarm);
+  agentsData.unshift(...swarmMembers.map(stamp).slice().reverse());
+  agentSwarmsData.unshift(stamp(swarm));
   await syncPersistedSwarmMessagesForSwarm(swarm);
   return {
     ...(await loadPersistedSwarmMessages(swarm)),
@@ -1687,7 +1743,7 @@ export async function createAgentSwarm(input: AgentSwarmMutationInput) {
 }
 
 export async function updateAgentSwarm(input: AgentSwarmMutationInput & { id: number }) {
-  const swarm = agentSwarmsData.find(item => item.id === input.id);
+  const swarm = findOwned(agentSwarmsData, item => item.id === input.id);
 
   if (!swarm) {
     throw new Error(`Agenten-Schwarm ${input.id} wurde nicht gefunden.`);
@@ -1717,7 +1773,7 @@ export async function updateAgentSwarm(input: AgentSwarmMutationInput & { id: nu
   swarm.memberAgentIds = swarmMembers.map(member => member.id);
   swarm.communicationLinks = buildSwarmCommunicationLinks(swarm.id, swarmMembers, input.topology);
 
-  agentsData.unshift(...swarmMembers.slice().reverse());
+  agentsData.unshift(...swarmMembers.map(stamp).slice().reverse());
   await syncPersistedSwarmMessagesForSwarm(swarm);
   return {
     ...(await loadPersistedSwarmMessages(swarm)),
@@ -1772,7 +1828,7 @@ export async function postAgentSwarmMessage(input: {
   content: string;
   kind: AgentSwarmMessageRecord["kind"];
 }) {
-  const swarm = agentSwarmsData.find(item => item.id === input.swarmId);
+  const swarm = findOwned(agentSwarmsData, item => item.id === input.swarmId);
 
   if (!swarm) {
     throw new Error(`Agenten-Schwarm ${input.swarmId} wurde nicht gefunden.`);
@@ -1829,7 +1885,7 @@ export async function postAgentSwarmMessage(input: {
 }
 
 export async function listPolicies() {
-  return [...policiesData].sort((a, b) => a.priority - b.priority);
+  return [...owned(policiesData)].sort((a, b) => a.priority - b.priority);
 }
 
 export async function createPolicy(input: {
@@ -1852,14 +1908,14 @@ export async function createPolicy(input: {
     isActive: true,
     description: input.description,
   };
-  policiesData.unshift(newPolicy);
+  policiesData.unshift(stamp(newPolicy));
   return newPolicy;
 }
 
 export async function listApprovalChains() {
   const db = await getDb();
   if (!db) {
-    return [...approvalChainTemplatesData]
+    return [...owned(approvalChainTemplatesData)]
       .map(cloneApprovalChainTemplate)
       .sort((a, b) => b.updatedAt - a.updatedAt);
   }
@@ -1963,7 +2019,7 @@ export async function createApprovalChainTemplate(input: {
         escalationTargetLabel: stage.escalationTargetLabel,
       })),
     };
-    approvalChainTemplatesData.unshift(chain);
+    approvalChainTemplatesData.unshift(stamp(chain));
     return cloneApprovalChainTemplate(chain);
   }
 
@@ -2128,11 +2184,11 @@ export async function updateApprovalChainTemplate(input: {
 
 export async function listApprovals() {
   synchronizeApprovalEscalations();
-  return [...approvalsData].sort((a, b) => b.requestedAt - a.requestedAt);
+  return [...owned(approvalsData)].sort((a, b) => b.requestedAt - a.requestedAt);
 }
 
 export async function listApprovalNotifications() {
-  return [...approvalNotificationsData].sort((a, b) => b.createdAt - a.createdAt);
+  return [...owned(approvalNotificationsData)].sort((a, b) => b.createdAt - a.createdAt);
 }
 
 export async function createApprovalNotification(input: {
@@ -2157,12 +2213,12 @@ export async function createApprovalNotification(input: {
     channel: input.channel ?? "inbox",
     createdAt: Date.now(),
   };
-  approvalNotificationsData.unshift(notification);
+  approvalNotificationsData.unshift(stamp(notification));
   return notification;
 }
 
 export async function applyApprovalChainToApproval(input: { approvalId: number; chainId: number; triggeredBy: string }) {
-  const approval = approvalsData.find(item => item.id === input.approvalId);
+  const approval = findOwned(approvalsData, item => item.id === input.approvalId);
   if (!approval) {
     throw new Error("Approval not found");
   }
@@ -2216,7 +2272,7 @@ export async function applyApprovalChainToApproval(input: { approvalId: number; 
 
 export async function resolveApprovalStage(input: { approvalId: number; decision: "approved" | "rejected"; approver: string; note?: string }) {
   const sanitizedNote = input.note ? sanitizeTextForPrivacy(input.note).sanitizedText : undefined;
-  const approval = approvalsData.find(item => item.id === input.approvalId);
+  const approval = findOwned(approvalsData, item => item.id === input.approvalId);
   if (!approval) {
     throw new Error("Approval not found");
   }
@@ -2323,7 +2379,7 @@ export async function resolveApprovalStage(input: { approvalId: number; decision
 
 export async function escalateApproval(input: { approvalId: number; triggeredBy: string; reason: string }) {
   const sanitizedReason = sanitizeTextForPrivacy(input.reason).sanitizedText;
-  const approval = approvalsData.find(item => item.id === input.approvalId);
+  const approval = findOwned(approvalsData, item => item.id === input.approvalId);
   if (!approval) {
     throw new Error("Approval not found");
   }
@@ -2358,25 +2414,25 @@ export async function escalateApproval(input: { approvalId: number; triggeredBy:
 
 
 export async function listAuditEvents() {
-  return [...auditEventsData].sort((a, b) => b.createdAt - a.createdAt);
+  return [...owned(auditEventsData)].sort((a, b) => b.createdAt - a.createdAt);
 }
 
 export async function listConnectors() {
-  return [...connectorsData].sort((a, b) => a.name.localeCompare(b.name));
+  return [...owned(connectorsData)].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export async function listEvaluations() {
-  return [...evaluationsData].sort((a, b) => b.executedAt - a.executedAt);
+  return [...owned(evaluationsData)].sort((a, b) => b.executedAt - a.executedAt);
 }
 
 export async function listGuardrailEvents() {
-  return [...guardrailsData].sort((a, b) => b.createdAt - a.createdAt);
+  return [...owned(guardrailsData)].sort((a, b) => b.createdAt - a.createdAt);
 }
 
 export async function listMetricSnapshots() {
   refreshLiveMetrics();
 
-  return [...metricsData]
+  return [...owned(metricsData)]
     .sort((a, b) => a.agentName.localeCompare(b.agentName))
     .map(metric => ({
       ...metric,
@@ -2399,7 +2455,7 @@ export async function createTeam(input: { name: string; owner: string; coverage:
     owner: input.owner,
     coverage: input.coverage,
   };
-  teamsData.unshift(team);
+  teamsData.unshift(stamp(team));
   return team;
 }
 
@@ -2414,13 +2470,13 @@ export async function createPermission(input: {
     id: nextPermissionId++,
     ...input,
   };
-  permissionsData.unshift(permission);
+  permissionsData.unshift(stamp(permission));
   return permission;
 }
 
 export async function createEvaluationRun(input: { agentId: number; name: string; expectedOutcome: string }) {
   const privacyResult = sanitizeTextForPrivacy(input.expectedOutcome);
-  const agent = agentsData.find(item => item.id === input.agentId);
+  const agent = findOwned(agentsData, item => item.id === input.agentId);
   if (!agent) {
     throw new Error("Agent not found");
   }
@@ -2441,7 +2497,7 @@ export async function createEvaluationRun(input: { agentId: number; name: string
     executedAt: Date.now(),
   };
 
-  evaluationsData.unshift(evaluation);
+  evaluationsData.unshift(stamp(evaluation));
   addAuditEvent({
     agentId: agent.id,
     agentName: agent.name,
@@ -2462,7 +2518,7 @@ export async function createGuardrailEvent(input: { agentId: number; triggerType
   const sanitizedThreshold = sanitizeTextForPrivacy(input.thresholdLabel);
   const sanitizedDetail = sanitizeTextForPrivacy(input.detail);
   const combinedPrivacyResult = combinePrivacySanitizationResults(sanitizedThreshold, sanitizedDetail);
-  const agent = agentsData.find(item => item.id === input.agentId);
+  const agent = findOwned(agentsData, item => item.id === input.agentId);
   if (!agent) {
     throw new Error("Agent not found");
   }
@@ -2478,7 +2534,7 @@ export async function createGuardrailEvent(input: { agentId: number; triggerType
     createdAt: Date.now(),
   };
 
-  guardrailsData.unshift(event);
+  guardrailsData.unshift(stamp(event));
   agent.status = "paused";
   addAuditEvent({
     agentId: agent.id,
@@ -2512,7 +2568,7 @@ export type IngestAuditInput = {
 };
 
 export function recordAuditEvent(input: IngestAuditInput) {
-  const agent = input.agentId ? agentsData.find(item => item.id === input.agentId) : undefined;
+  const agent = input.agentId ? findOwned(agentsData, item => item.id === input.agentId) : undefined;
   addAuditEvent({
     agentId: agent?.id ?? input.agentId ?? 0,
     agentName: agent?.name ?? "System",
@@ -2536,7 +2592,7 @@ export type IngestMetricInput = {
 };
 
 export function recordMetricSnapshot(input: IngestMetricInput) {
-  const agent = agentsData.find(item => item.id === input.agentId);
+  const agent = findOwned(agentsData, item => item.id === input.agentId);
   if (!agent) {
     throw new Error("Agent not found");
   }
@@ -2545,6 +2601,7 @@ export function recordMetricSnapshot(input: IngestMetricInput) {
   const nextId = metricsData.reduce((max, metric) => Math.max(max, metric.id), 0) + 1;
   const snapshot: MetricRecord = {
     id: nextId,
+    ownerId: currentTenantId(),
     agentId: agent.id,
     agentName: agent.name,
     latencyMs: input.latencyMs,
@@ -2556,7 +2613,9 @@ export function recordMetricSnapshot(input: IngestMetricInput) {
   };
 
   // Replace the latest snapshot for this agent, keep one current row per agent.
-  const existingIndex = metricsData.findIndex(metric => metric.agentId === agent.id);
+  const existingIndex = metricsData.findIndex(
+    metric => metric.agentId === agent.id && tenantOf(metric) === currentTenantId()
+  );
   if (existingIndex >= 0) {
     metricsData[existingIndex] = snapshot;
   } else {
@@ -2612,12 +2671,12 @@ export function evaluateActionPolicy(input: { agentId: number; actionType: strin
   decision: PolicyDecision;
   matchedPolicy: PolicyRecord | null;
 } {
-  const agent = agentsData.find(item => item.id === input.agentId);
+  const agent = findOwned(agentsData, item => item.id === input.agentId);
   if (!agent) {
     throw new Error("Agent not found");
   }
 
-  const matches = policiesData
+  const matches = owned(policiesData)
     .filter(
       policy =>
         policy.isActive &&
@@ -2640,7 +2699,7 @@ export function requestActionApproval(input: {
   riskLevel?: RiskLevel;
   requestedBy?: string;
 }): ApprovalRecord {
-  const agent = agentsData.find(item => item.id === input.agentId);
+  const agent = findOwned(agentsData, item => item.id === input.agentId);
   if (!agent) {
     throw new Error("Agent not found");
   }
@@ -2686,7 +2745,7 @@ export function requestActionApproval(input: {
     ],
   };
 
-  approvalsData.unshift(approval);
+  approvalsData.unshift(stamp(approval));
   addAuditEvent({
     agentId: agent.id,
     agentName: agent.name,
@@ -2709,7 +2768,7 @@ export function checkActionPolicy(input: {
   riskLevel?: RiskLevel;
   requestedBy?: string;
 }): { decision: PolicyDecision; policyName: string | null; approvalId?: number; reason?: string } {
-  const agent = agentsData.find(item => item.id === input.agentId);
+  const agent = findOwned(agentsData, item => item.id === input.agentId);
   if (!agent) {
     throw new Error("Agent not found");
   }
@@ -2764,16 +2823,86 @@ export function checkActionPolicy(input: {
 export function getApprovalDecision(
   approvalId: number
 ): { status: ApprovalStatus; title: string } | null {
-  const approval = approvalsData.find(item => item.id === approvalId);
+  const approval = findOwned(approvalsData, item => item.id === approvalId);
   if (!approval) return null;
   return { status: approval.status, title: approval.title };
 }
 
 export async function getAccessOverview() {
   return {
-    teams: teamsData,
-    permissions: permissionsData,
+    teams: owned(teamsData),
+    permissions: owned(permissionsData),
   };
+}
+
+// --- Tenant provisioning ----------------------------------------------------
+const seededTenants = new Set<string>();
+const seedingInFlight = new Map<string, Promise<void>>();
+
+/**
+ * Seed a brand-new customer workspace with a small starter set so the UI is not
+ * empty. The project owner (DEFAULT_TENANT) keeps the full original demo data.
+ * Idempotent and safe against concurrent first requests.
+ */
+export async function ensureTenantSeeded(tenantId: string): Promise<void> {
+  if (tenantId === DEFAULT_TENANT || seededTenants.has(tenantId)) return;
+  if (agentsData.some(agent => tenantOf(agent) === tenantId)) {
+    seededTenants.add(tenantId);
+    return;
+  }
+
+  const inFlight = seedingInFlight.get(tenantId);
+  if (inFlight) return inFlight;
+
+  const promise = seedTenant(tenantId).finally(() => seedingInFlight.delete(tenantId));
+  seedingInFlight.set(tenantId, promise);
+  return promise;
+}
+
+async function seedTenant(tenantId: string): Promise<void> {
+  await runWithTenant(tenantId, async () => {
+    const planner = await createAgent({
+      name: "Beispiel-Agent",
+      description: "Ein Start-Agent zum Ausprobieren – anpassen oder löschen.",
+      team: "Mein Team",
+      owner: "Ich",
+      model: "claude-sonnet-4-6",
+      environment: "production",
+    });
+    const assistant = await createAgent({
+      name: "Support-Assistent",
+      description: "Beispiel für einen kundenorientierten Agenten.",
+      team: "Mein Team",
+      owner: "Ich",
+      model: "claude-haiku-4-5",
+      environment: "staging",
+    });
+
+    await createPolicy({
+      name: "Datenexport benötigt Freigabe",
+      scopeType: "global",
+      scopeRef: "all-agents",
+      actionPattern: "data.export",
+      effect: "approval_required",
+      priority: 20,
+      description: "Beispiel-Regel: Datenexporte müssen menschlich freigegeben werden.",
+    });
+
+    recordMetricSnapshot({ agentId: planner.id, latencyMs: 760, errorRate: 0.8, apiCostUsd: 0.42, tokenUsage: 9800 });
+    recordMetricSnapshot({ agentId: assistant.id, latencyMs: 540, errorRate: 0.3, apiCostUsd: 0.18, tokenUsage: 4200 });
+
+    recordAuditEvent({
+      agentId: planner.id,
+      severity: "info",
+      category: "Onboarding",
+      title: "Workspace eingerichtet",
+      detail: "Dein Bereich wurde mit Beispieldaten vorbereitet. Lege eigene Agenten und Policies an.",
+      actorType: "system",
+      actorRef: "onboarding",
+    });
+  });
+
+  seededTenants.add(tenantId);
 }
 
 export async function listPrivacyRules() {

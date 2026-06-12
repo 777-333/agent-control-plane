@@ -22,6 +22,7 @@ import { createContext } from "./context";
 import { ENV } from "./env";
 import { logger } from "./logger";
 import { initObservability } from "./observability";
+import { DEFAULT_TENANT, runWithTenant } from "./tenant";
 import { serveStatic, setupVite } from "./vite";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -125,30 +126,32 @@ async function startServer() {
       return;
     }
 
-    try {
-      const body = req.body as { type?: string; payload?: Record<string, unknown> };
-      const payload = body.payload ?? {};
+    await runWithTenant(DEFAULT_TENANT, async () => {
+      try {
+        const body = req.body as { type?: string; payload?: Record<string, unknown> };
+        const payload = body.payload ?? {};
 
-      switch (body.type) {
-        case "audit":
-          res.json({ ok: true, event: recordAuditEvent(payload as never) });
-          return;
-        case "metric":
-          res.json({ ok: true, snapshot: recordMetricSnapshot(payload as never) });
-          return;
-        case "guardrail":
-          res.json({ ok: true, event: await createGuardrailEvent(payload as never) });
-          return;
-        default:
-          res.status(400).json({ ok: false, error: "Unknown ingest type" });
-          return;
+        switch (body.type) {
+          case "audit":
+            res.json({ ok: true, event: recordAuditEvent(payload as never) });
+            return;
+          case "metric":
+            res.json({ ok: true, snapshot: recordMetricSnapshot(payload as never) });
+            return;
+          case "guardrail":
+            res.json({ ok: true, event: await createGuardrailEvent(payload as never) });
+            return;
+          default:
+            res.status(400).json({ ok: false, error: "Unknown ingest type" });
+            return;
+        }
+      } catch (error) {
+        res.status(400).json({
+          ok: false,
+          error: error instanceof Error ? error.message : "Ingestion failed",
+        });
       }
-    } catch (error) {
-      res.status(400).json({
-        ok: false,
-        error: error instanceof Error ? error.message : "Ingestion failed",
-      });
-    }
+    });
   });
 
   // Synchronous policy decision: an agent asks BEFORE acting.
@@ -174,21 +177,23 @@ async function startServer() {
       return;
     }
 
-    try {
-      const result = checkActionPolicy({
-        agentId: body.agentId,
-        actionType: body.actionType,
-        summary: typeof body.summary === "string" ? body.summary : undefined,
-        riskLevel: coerceRiskLevel(body.riskLevel),
-        requestedBy: typeof body.requestedBy === "string" ? body.requestedBy : undefined,
-      });
-      res.json({ ok: true, ...result });
-    } catch (error) {
-      res.status(400).json({
-        ok: false,
-        error: error instanceof Error ? error.message : "Policy check failed",
-      });
-    }
+    runWithTenant(DEFAULT_TENANT, () => {
+      try {
+        const result = checkActionPolicy({
+          agentId: body.agentId as number,
+          actionType: body.actionType as string,
+          summary: typeof body.summary === "string" ? body.summary : undefined,
+          riskLevel: coerceRiskLevel(body.riskLevel),
+          requestedBy: typeof body.requestedBy === "string" ? body.requestedBy : undefined,
+        });
+        res.json({ ok: true, ...result });
+      } catch (error) {
+        res.status(400).json({
+          ok: false,
+          error: error instanceof Error ? error.message : "Policy check failed",
+        });
+      }
+    });
   });
 
   // Poll the status of an approval created by a policy check.
@@ -204,13 +209,14 @@ async function startServer() {
       return;
     }
 
-    const decision = getApprovalDecision(approvalId);
-    if (!decision) {
-      res.status(404).json({ ok: false, error: "Approval not found" });
-      return;
-    }
-
-    res.json({ ok: true, approvalId, status: decision.status, title: decision.title });
+    runWithTenant(DEFAULT_TENANT, () => {
+      const decision = getApprovalDecision(approvalId);
+      if (!decision) {
+        res.status(404).json({ ok: false, error: "Approval not found" });
+        return;
+      }
+      res.json({ ok: true, approvalId, status: decision.status, title: decision.title });
+    });
   });
 
   // tRPC API (rate-limited)

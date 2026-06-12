@@ -14,6 +14,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    setupFiles: ["./vitest.setup.ts"],
     include: ["server/**/*.test.ts", "server/**/*.spec.ts", "client/src/lib/**/*.test.ts", "client/src/lib/**/*.spec.ts", "client/src/components/**/*.test.tsx", "client/src/components/**/*.spec.tsx"],
   },
 });

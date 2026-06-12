@@ -2,8 +2,18 @@ import { NOT_ADMIN_ERR_MSG, UNAUTHED_ERR_MSG } from '@shared/const';
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import type { TrpcContext } from "./context";
+import { ensureTenantSeeded } from "../db";
 import { ENV } from "./env";
 import { captureException } from "./observability";
+import { DEFAULT_TENANT, runWithTenant } from "./tenant";
+
+/**
+ * Map a user to their tenant. The project owner maps to DEFAULT_TENANT so the
+ * original seeded data belongs to them; every other user is their own tenant.
+ */
+function tenantForUser(openId: string): string {
+  return ENV.ownerOpenId && openId === ENV.ownerOpenId ? DEFAULT_TENANT : openId;
+}
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
@@ -29,12 +39,19 @@ const requireUser = t.middleware(async opts => {
     throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
   }
 
-  return next({
-    ctx: {
-      ...ctx,
-      user: ctx.user,
-    },
-  });
+  const user = ctx.user;
+  const tenant = tenantForUser(user.openId);
+  // Provision a starter workspace for brand-new customers (idempotent).
+  await ensureTenantSeeded(tenant);
+  // Carry the tenant through the whole request so the data layer isolates it.
+  return runWithTenant(tenant, () =>
+    next({
+      ctx: {
+        ...ctx,
+        user,
+      },
+    })
+  );
 });
 
 export const protectedProcedure = t.procedure.use(requireUser);

@@ -848,7 +848,7 @@ describe("control plane router", () => {
 
   it("includes server-side swarm export history, approval requests and subscriptions in the control-plane snapshot", async () => {
     const adminCaller = appRouter.createCaller(createAuthContext({ name: "Ops Console", email: "ops@example.com", role: "admin" }));
-    const userCaller = appRouter.createCaller(createAuthContext({ id: 6, name: "Snapshot Analyst", email: "snapshot@example.com", role: "user", openId: "snapshot-user" }));
+    const userCaller = appRouter.createCaller(createAuthContext({ id: 6, name: "Snapshot Analyst", email: "snapshot@example.com", role: "user" }));
     const swarm = (await adminCaller.controlPlane.snapshot()).agentSwarms[0]!;
 
     await userCaller.swarmReports.requestDownload({
@@ -877,7 +877,7 @@ describe("control plane router", () => {
 
   it("requires admin approval for sensitive swarm report downloads and records the export after release", async () => {
     const adminCaller = appRouter.createCaller(createAuthContext({ name: "Ops Console", email: "ops@example.com", role: "admin" }));
-    const userCaller = appRouter.createCaller(createAuthContext({ id: 5, name: "Analyst User", email: "analyst@example.com", role: "user", openId: "analyst-user" }));
+    const userCaller = appRouter.createCaller(createAuthContext({ id: 5, name: "Analyst User", email: "analyst@example.com", role: "user" }));
     const swarm = (await adminCaller.controlPlane.snapshot()).agentSwarms[0]!;
 
     const requested = await userCaller.swarmReports.requestDownload({
@@ -930,7 +930,7 @@ describe("control plane router", () => {
 
   it.skipIf(!process.env.DATABASE_URL)("processes due governance-report subscriptions on explicit scheduled execution even without startImmediately", async () => {
     const adminCaller = appRouter.createCaller(createAuthContext({ name: "Ops Console", email: "ops@example.com", role: "admin" }));
-    const userCaller = appRouter.createCaller(createAuthContext({ id: 7, name: "Ops User", email: "ops-user@example.com", role: "user", openId: "ops-user" }));
+    const userCaller = appRouter.createCaller(createAuthContext({ id: 7, name: "Ops User", email: "ops-user@example.com", role: "user" }));
     const swarm = (await adminCaller.controlPlane.snapshot()).agentSwarms[0]!;
 
     const created = await adminCaller.swarmReports.createSubscription({
@@ -1002,7 +1002,7 @@ describe("control plane router", () => {
 
   it("blocks sensitive autonomous runs for users, allows admin approval and supports pause, resume and cancel controls", async () => {
     const adminCaller = appRouter.createCaller(createAuthContext({ name: "Ops Console", email: "ops@example.com", role: "admin" }));
-    const userCaller = appRouter.createCaller(createAuthContext({ id: 9, name: "Operations Analyst", email: "analyst@example.com", role: "user", openId: "ops-analyst" }));
+    const userCaller = appRouter.createCaller(createAuthContext({ id: 9, name: "Operations Analyst", email: "analyst@example.com", role: "user" }));
     const swarm = (await adminCaller.controlPlane.snapshot()).agentSwarms[0]!;
 
     const awaitingApproval = await userCaller.agents.createAutonomyRun({
@@ -1071,7 +1071,7 @@ describe("control plane router", () => {
 
   it("creates an awaiting-approval autonomy run on swarms with approval-required governance and releases it via admin approval", async () => {
     const adminCaller = appRouter.createCaller(createAuthContext({ name: "Ops Console", email: "ops@example.com", role: "admin" }));
-    const userCaller = appRouter.createCaller(createAuthContext({ id: 10, name: "Approval Analyst", email: "approval@example.com", role: "user", openId: "approval-user" }));
+    const userCaller = appRouter.createCaller(createAuthContext({ id: 10, name: "Approval Analyst", email: "approval@example.com", role: "user" }));
 
     const approvalSwarm = await adminCaller.agents.createSwarm({
       name: `Autonomy Approval Swarm ${Date.now()}`,
