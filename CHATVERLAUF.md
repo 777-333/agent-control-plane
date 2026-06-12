@@ -115,3 +115,21 @@ erst interne Limits, Stripe später.
   Nutzung" (`/billing`) mit Nutzungsbalken + Tarifauswahl.
 - Tests: `server/billing.test.ts` (Quota + Zähler). 78 grün / 2 skip.
 **Offen:** Stripe (2b), Team-Tenancy (3).
+
+## Runde 14 — Schritt 3: Team-/Mehrbenutzer-Tenancy
+**Nutzer:** Schritt 3 umsetzen. **Entscheidungen:** 3 Rollen (Admin/Mitglied/
+Betrachter); Einladung mit Bestätigung.
+**Aktion:**
+- Tenant = **Organisation** statt Einzelnutzer. `tenant.ts` trägt jetzt
+  Kontext `{tenantId, role, userOpenId}` (ALS); `currentRole()` ergänzt.
+- `db.ts`: Organizations/Memberships/Invites + Helfer (`resolveTenantForUser`
+  mit persönlicher Org = openId für Bestandsdaten, `getTeamOverview`,
+  `inviteMember`, `acceptInvite`, `changeMemberRole`, `removeMember`,
+  `renameOrg`, `leaveOrg`, `listInvitesForEmail`). JSONB-persistiert.
+- `trpc.ts`: Middleware löst Org auf, blockt Mutationen für Betrachter (außer
+  `team.*`); neuer `orgAdminProcedure`. API-Keys/Billing-Mutationen jetzt
+  Admin-only.
+- `team`-tRPC-Router + UI-Seite „Team & Mitglieder" (`/team`): Mitglieder,
+  Rollen ändern, einladen, Einladungen annehmen, Org umbenennen, verlassen.
+- Tests: `server/team.test.ts` (Einladung/Beitritt/Rollen). 81 grün / 2 skip.
+**Offen:** Stripe (2b).

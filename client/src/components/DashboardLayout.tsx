@@ -41,6 +41,7 @@ import {
   Route,
   ShieldCheck,
   UserCog,
+  Users,
 } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
@@ -135,6 +136,14 @@ const menuItems = [
     path: "/integration",
     area: "Integration",
     description: "Eigene API-Schlüssel erzeugen und Agenten per Snippet anbinden.",
+    statusLabel: "Live",
+  },
+  {
+    icon: Users,
+    label: "Team & Mitglieder",
+    path: "/team",
+    area: "Organisation",
+    description: "Kollegen einladen, Rollen verwalten, Organisation umbenennen.",
     statusLabel: "Live",
   },
   {

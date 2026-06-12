@@ -59,17 +59,26 @@ den Namen. Der Name ist nur ein Etikett fürs Dashboard.
 
 ---
 
-## 4. Mandantenfähigkeit (Multi-Tenant)
+## 4. Mandantenfähigkeit & Team (Multi-Tenant)
 
-Jeder eingeloggte Kunde hat einen **eigenen, vollständig isolierten Bereich**:
-- Kunde A sieht **nie** die Daten von Kunde B.
-- Neue Kunden starten mit einem kleinen **Beispiel-Datensatz** (Starter-Set),
-  damit das Dashboard nicht leer ist.
-- Der **Projektinhaber** (du) ist ein Sonderfall und behält die ursprünglichen
-  Demo-Daten (gesteuert über die Variable `OWNER_OPEN_ID`, siehe Abschnitt 9).
+Ein **Mandant ist eine Organisation**. Jede Organisation hat einen **eigenen,
+vollständig isolierten Bereich**:
+- Organisation A sieht **nie** die Daten von Organisation B.
+- Neue Kunden starten mit einem kleinen **Beispiel-Datensatz** (Starter-Set).
+- Der **Projektinhaber** (du) behält die ursprünglichen Demo-Daten
+  (`OWNER_OPEN_ID`, siehe Abschnitt 9).
 
-Technischer Kern: Jeder Datensatz trägt einen Besitzer (`ownerId`); jede
-Abfrage filtert nach dem eingeloggten Kunden.
+**Team & Rollen** (Seite „Team & Mitglieder"):
+- Ein Nutzer startet allein in seiner persönlichen Organisation (= Admin).
+- Ein Admin kann **Kollegen per E-Mail einladen**; diese **treten nach
+  Bestätigung** beim Login bei und teilen sich dann denselben Bereich.
+- **Rollen:** **Admin** (alles, inkl. Team/Abrechnung/API-Schlüssel),
+  **Mitglied** (Agenten/Policies/Freigaben verwalten), **Betrachter** (nur lesen).
+- Mitglieder können die Organisation verlassen; der letzte Admin ist geschützt.
+
+Technischer Kern: Jeder Datensatz trägt einen Besitzer (`ownerId` = Org-ID);
+jede Abfrage filtert nach der Organisation des eingeloggten Nutzers; die Rolle
+wird pro Request mitgeführt und durchgesetzt.
 
 ---
 

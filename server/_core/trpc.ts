@@ -2,18 +2,10 @@ import { NOT_ADMIN_ERR_MSG, UNAUTHED_ERR_MSG } from '@shared/const';
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import type { TrpcContext } from "./context";
-import { ensureTenantSeeded } from "../db";
+import { ensureTenantSeeded, resolveTenantForUser } from "../db";
 import { ENV } from "./env";
 import { captureException } from "./observability";
-import { DEFAULT_TENANT, runWithTenant } from "./tenant";
-
-/**
- * Map a user to their tenant. The project owner maps to DEFAULT_TENANT so the
- * original seeded data belongs to them; every other user is their own tenant.
- */
-function tenantForUser(openId: string): string {
-  return ENV.ownerOpenId && openId === ENV.ownerOpenId ? DEFAULT_TENANT : openId;
-}
+import { currentRole, runWithContext } from "./tenant";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
@@ -33,18 +25,33 @@ export const router = t.router;
 export const publicProcedure = t.procedure;
 
 const requireUser = t.middleware(async opts => {
-  const { ctx, next } = opts;
+  const { ctx, next, type, path } = opts;
 
   if (!ctx.user) {
     throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
   }
 
   const user = ctx.user;
-  const tenant = tenantForUser(user.openId);
+  const isOwner = Boolean(ENV.ownerOpenId && user.openId === ENV.ownerOpenId);
+  const { tenantId, role } = resolveTenantForUser({
+    openId: user.openId,
+    email: user.email ?? null,
+    name: user.name ?? null,
+    isOwner,
+  });
+
+  // Viewers are read-only, except for managing their own team membership.
+  if (role === "viewer" && type === "mutation" && !path.startsWith("team.")) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: 'Nur-Lese-Zugriff: Diese Aktion ist für die Rolle „Betrachter" nicht erlaubt.',
+    });
+  }
+
   // Provision a starter workspace for brand-new customers (idempotent).
-  await ensureTenantSeeded(tenant);
-  // Carry the tenant through the whole request so the data layer isolates it.
-  return runWithTenant(tenant, () =>
+  await ensureTenantSeeded(tenantId);
+  // Carry tenant + role through the whole request so the data layer isolates it.
+  return runWithContext({ tenantId, role, userOpenId: user.openId }, () =>
     next({
       ctx: {
         ...ctx,
@@ -55,6 +62,19 @@ const requireUser = t.middleware(async opts => {
 });
 
 export const protectedProcedure = t.procedure.use(requireUser);
+
+/** Requires the caller to be an admin of their current organisation. */
+export const orgAdminProcedure = protectedProcedure.use(
+  t.middleware(async opts => {
+    if (currentRole() !== "admin") {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Nur Admins der Organisation dürfen diese Aktion ausführen.",
+      });
+    }
+    return opts.next();
+  })
+);
 
 export const adminProcedure = t.procedure.use(
   t.middleware(async opts => {

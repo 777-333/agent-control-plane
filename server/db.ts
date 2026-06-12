@@ -5,7 +5,14 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { InsertUser, appCollections, approvalChains, approvalStages, swarmMessages, users } from "../drizzle/schema";
 import { ENV } from "./_core/env";
-import { currentTenantId, DEFAULT_TENANT, runWithTenant } from "./_core/tenant";
+import {
+  currentRole,
+  currentTenantId,
+  currentUserOpenId,
+  DEFAULT_TENANT,
+  runWithTenant,
+  type Role,
+} from "./_core/tenant";
 import { DEFAULT_PLAN, PLANS, PLAN_IDS, isPlanId, type Plan, type PlanId } from "./plans";
 import {
   applySwarmAutonomyAction as applySwarmAutonomyActionEntry,
@@ -3098,6 +3105,215 @@ export function setTenantPlan(planId: string): BillingOverview {
   return getBillingOverview();
 }
 
+// --- Organisations, members & invites (team tenancy) ------------------------
+type Organization = { id: string; name: string; createdAt: number };
+type Membership = { orgId: string; role: Role; email: string | null; name: string | null };
+type InviteRecord = {
+  id: number;
+  orgId: string;
+  orgName: string;
+  email: string; // lowercased
+  role: Role;
+  createdAt: number;
+  acceptedAt: number | null;
+  invitedByLabel: string;
+};
+
+const organizations: Record<string, Organization> = {};
+const memberships: Record<string, Membership> = {}; // key = user openId
+const invites: InviteRecord[] = [];
+let nextInviteId = 1;
+
+function ensureOrg(id: string, name: string): Organization {
+  if (!organizations[id]) {
+    organizations[id] = { id, name, createdAt: Date.now() };
+  }
+  return organizations[id];
+}
+
+/**
+ * Resolve which organisation (tenant) a user belongs to, creating a personal
+ * org on first login. The owner maps to DEFAULT_TENANT. Keeps email/name fresh.
+ */
+export function resolveTenantForUser(input: {
+  openId: string;
+  email: string | null;
+  name: string | null;
+  isOwner: boolean;
+}): { tenantId: string; role: Role } {
+  if (input.isOwner) {
+    ensureOrg(DEFAULT_TENANT, "Inhaber-Workspace");
+    memberships[input.openId] = {
+      orgId: DEFAULT_TENANT,
+      role: "admin",
+      email: input.email,
+      name: input.name,
+    };
+    return { tenantId: DEFAULT_TENANT, role: "admin" };
+  }
+
+  let membership = memberships[input.openId];
+  if (!membership) {
+    ensureOrg(input.openId, input.name ? `${input.name}s Workspace` : "Mein Workspace");
+    membership = memberships[input.openId] = {
+      orgId: input.openId,
+      role: "admin",
+      email: input.email,
+      name: input.name,
+    };
+  } else {
+    if (input.email) membership.email = input.email;
+    if (input.name) membership.name = input.name;
+  }
+  return { tenantId: membership.orgId, role: membership.role };
+}
+
+export type TeamOverview = {
+  org: { id: string; name: string };
+  myRole: Role;
+  members: Array<{ openId: string; email: string | null; name: string | null; role: Role }>;
+  invites: Array<{ id: number; email: string; role: Role; createdAt: number }>;
+};
+
+export function getTeamOverview(): TeamOverview {
+  const orgId = currentTenantId();
+  const org = organizations[orgId] ?? { id: orgId, name: "Workspace", createdAt: Date.now() };
+  const members = Object.entries(memberships)
+    .filter(([, m]) => m.orgId === orgId)
+    .map(([openId, m]) => ({ openId, email: m.email, name: m.name, role: m.role }));
+  const pending = invites
+    .filter(invite => invite.orgId === orgId && !invite.acceptedAt)
+    .map(invite => ({ id: invite.id, email: invite.email, role: invite.role, createdAt: invite.createdAt }));
+  return { org: { id: org.id, name: org.name }, myRole: currentRole(), members, invites: pending };
+}
+
+export function inviteMember(email: string, role: Role, invitedByLabel: string): TeamOverview {
+  const orgId = currentTenantId();
+  const normalized = email.trim().toLowerCase();
+  if (!normalized.includes("@")) {
+    throw new Error("Bitte eine gültige E-Mail-Adresse angeben.");
+  }
+  const alreadyMember = Object.values(memberships).some(
+    m => m.orgId === orgId && (m.email ?? "").toLowerCase() === normalized
+  );
+  if (alreadyMember) {
+    throw new Error("Diese Person ist bereits Mitglied der Organisation.");
+  }
+  const existing = invites.find(
+    invite => invite.orgId === orgId && invite.email === normalized && !invite.acceptedAt
+  );
+  if (existing) {
+    existing.role = role;
+    return getTeamOverview();
+  }
+  ensureOrg(orgId, organizations[orgId]?.name ?? "Workspace");
+  invites.unshift({
+    id: nextInviteId++,
+    orgId,
+    orgName: organizations[orgId]?.name ?? "Workspace",
+    email: normalized,
+    role,
+    createdAt: Date.now(),
+    acceptedAt: null,
+    invitedByLabel,
+  });
+  return getTeamOverview();
+}
+
+export function cancelInvite(id: number): TeamOverview {
+  const orgId = currentTenantId();
+  const index = invites.findIndex(invite => invite.id === id && invite.orgId === orgId);
+  if (index >= 0) invites.splice(index, 1);
+  return getTeamOverview();
+}
+
+export function changeMemberRole(openId: string, role: Role): TeamOverview {
+  const orgId = currentTenantId();
+  const membership = memberships[openId];
+  if (!membership || membership.orgId !== orgId) {
+    throw new Error("Mitglied wurde nicht gefunden.");
+  }
+  // Don't allow removing the last admin.
+  if (membership.role === "admin" && role !== "admin") {
+    const adminCount = Object.values(memberships).filter(m => m.orgId === orgId && m.role === "admin").length;
+    if (adminCount <= 1) throw new Error("Die Organisation braucht mindestens einen Admin.");
+  }
+  membership.role = role;
+  return getTeamOverview();
+}
+
+export function removeMember(openId: string): TeamOverview {
+  const orgId = currentTenantId();
+  const membership = memberships[openId];
+  if (!membership || membership.orgId !== orgId) {
+    throw new Error("Mitglied wurde nicht gefunden.");
+  }
+  if (membership.role === "admin") {
+    const adminCount = Object.values(memberships).filter(m => m.orgId === orgId && m.role === "admin").length;
+    if (adminCount <= 1) throw new Error("Der letzte Admin kann nicht entfernt werden.");
+  }
+  // The removed member falls back to their personal org on next login.
+  delete memberships[openId];
+  return getTeamOverview();
+}
+
+export function renameOrg(name: string): TeamOverview {
+  const orgId = currentTenantId();
+  const trimmed = name.trim();
+  if (trimmed.length < 2) throw new Error("Der Name muss mindestens 2 Zeichen haben.");
+  ensureOrg(orgId, trimmed).name = trimmed;
+  return getTeamOverview();
+}
+
+/** Pending invites addressed to the given email (across organisations). */
+export function listInvitesForEmail(email: string | null) {
+  if (!email) return [];
+  const normalized = email.trim().toLowerCase();
+  return invites
+    .filter(invite => invite.email === normalized && !invite.acceptedAt)
+    .map(invite => ({ id: invite.id, orgId: invite.orgId, orgName: invite.orgName, role: invite.role }));
+}
+
+/** Accept an invite addressed to the current user. Switches their org. */
+export function acceptInvite(input: { id: number; openId: string; email: string | null; name: string | null }) {
+  const normalized = (input.email ?? "").trim().toLowerCase();
+  const invite = invites.find(item => item.id === input.id && !item.acceptedAt);
+  if (!invite || invite.email !== normalized) {
+    throw new Error("Einladung wurde nicht gefunden oder ist nicht für dich.");
+  }
+  invite.acceptedAt = Date.now();
+  memberships[input.openId] = {
+    orgId: invite.orgId,
+    role: invite.role,
+    email: input.email,
+    name: input.name,
+  };
+  return { success: true as const, orgId: invite.orgId };
+}
+
+/** Leave the current organisation and fall back to a personal workspace. */
+export function leaveOrg(input: { openId: string; email: string | null; name: string | null }) {
+  const orgId = currentTenantId();
+  if (orgId === input.openId) {
+    throw new Error("Du bist in deinem eigenen Workspace – hier gibt es nichts zu verlassen.");
+  }
+  const membership = memberships[input.openId];
+  if (membership?.role === "admin") {
+    const adminCount = Object.values(memberships).filter(m => m.orgId === orgId && m.role === "admin").length;
+    if (adminCount <= 1) {
+      throw new Error("Du bist der letzte Admin – übertrage zuerst die Admin-Rolle.");
+    }
+  }
+  ensureOrg(input.openId, input.name ? `${input.name}s Workspace` : "Mein Workspace");
+  memberships[input.openId] = {
+    orgId: input.openId,
+    role: "admin",
+    email: input.email,
+    name: input.name,
+  };
+  return { success: true as const };
+}
+
 export async function listPrivacyRules() {
   return listCustomPrivacyRules();
 }
@@ -3307,10 +3523,14 @@ function buildStateObject() {
     apiKeys: apiKeysData,
     tenantPlans,
     tenantUsage,
+    organizations,
+    memberships,
+    invites,
     privacy: exportCustomPrivacyRules(),
     counters: {
       nextAgentId,
       nextApiKeyId,
+      nextInviteId,
       nextSwarmId,
       nextSwarmCommunicationId,
       nextSwarmMessageId,
@@ -3357,6 +3577,15 @@ function applyStateObject(state: Record<string, any> | null | undefined) {
     for (const key of Object.keys(tenantUsage)) delete tenantUsage[key];
     Object.assign(tenantUsage, state.tenantUsage);
   }
+  if (state.organizations && typeof state.organizations === "object") {
+    for (const key of Object.keys(organizations)) delete organizations[key];
+    Object.assign(organizations, state.organizations);
+  }
+  if (state.memberships && typeof state.memberships === "object") {
+    for (const key of Object.keys(memberships)) delete memberships[key];
+    Object.assign(memberships, state.memberships);
+  }
+  replaceArrayContents(invites, state.invites);
 
   if (Array.isArray(state.metricHistory)) {
     metricHistoryData.clear();
@@ -3372,6 +3601,7 @@ function applyStateObject(state: Record<string, any> | null | undefined) {
   const counters = state.counters ?? {};
   if (typeof counters.nextAgentId === "number") nextAgentId = counters.nextAgentId;
   if (typeof counters.nextApiKeyId === "number") nextApiKeyId = counters.nextApiKeyId;
+  if (typeof counters.nextInviteId === "number") nextInviteId = counters.nextInviteId;
   if (typeof counters.nextSwarmId === "number") nextSwarmId = counters.nextSwarmId;
   if (typeof counters.nextSwarmCommunicationId === "number") nextSwarmCommunicationId = counters.nextSwarmCommunicationId;
   if (typeof counters.nextSwarmMessageId === "number") nextSwarmMessageId = counters.nextSwarmMessageId;

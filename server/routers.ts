@@ -3,7 +3,7 @@ import { z } from "zod";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import { orgAdminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import {
   applyApprovalChainToApproval,
   createApiKey,
@@ -12,6 +12,15 @@ import {
   getBillingOverview,
   listPlans,
   setTenantPlan,
+  getTeamOverview,
+  inviteMember,
+  cancelInvite,
+  changeMemberRole,
+  removeMember,
+  renameOrg,
+  listInvitesForEmail,
+  acceptInvite,
+  leaveOrg,
   createAgent,
   createAgentSwarm,
   dissolveAgentSwarm,
@@ -70,19 +79,53 @@ export const appRouter = router({
   }),
   apiKeys: router({
     list: protectedProcedure.query(() => listApiKeys()),
-    create: protectedProcedure
+    create: orgAdminProcedure
       .input(z.object({ label: z.string().min(1).max(80) }))
       .mutation(({ input }) => createApiKey(input.label)),
-    revoke: protectedProcedure
+    revoke: orgAdminProcedure
       .input(z.object({ id: z.number().int().positive() }))
       .mutation(({ input }) => revokeApiKey(input.id)),
   }),
   billing: router({
     overview: protectedProcedure.query(() => getBillingOverview()),
     plans: protectedProcedure.query(() => listPlans()),
-    selectPlan: protectedProcedure
+    selectPlan: orgAdminProcedure
       .input(z.object({ planId: z.string().min(1) }))
       .mutation(({ input }) => setTenantPlan(input.planId)),
+  }),
+  team: router({
+    overview: protectedProcedure.query(() => getTeamOverview()),
+    myInvites: protectedProcedure.query(({ ctx }) => listInvitesForEmail(ctx.user?.email ?? null)),
+    invite: orgAdminProcedure
+      .input(z.object({ email: z.string().email(), role: z.enum(["admin", "member", "viewer"]) }))
+      .mutation(({ input, ctx }) =>
+        inviteMember(input.email, input.role, ctx.user?.name ?? ctx.user?.email ?? "Admin")
+      ),
+    cancelInvite: orgAdminProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(({ input }) => cancelInvite(input.id)),
+    changeRole: orgAdminProcedure
+      .input(z.object({ openId: z.string().min(1), role: z.enum(["admin", "member", "viewer"]) }))
+      .mutation(({ input }) => changeMemberRole(input.openId, input.role)),
+    removeMember: orgAdminProcedure
+      .input(z.object({ openId: z.string().min(1) }))
+      .mutation(({ input }) => removeMember(input.openId)),
+    renameOrg: orgAdminProcedure
+      .input(z.object({ name: z.string().min(2).max(80) }))
+      .mutation(({ input }) => renameOrg(input.name)),
+    acceptInvite: protectedProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(({ input, ctx }) =>
+        acceptInvite({
+          id: input.id,
+          openId: ctx.user!.openId,
+          email: ctx.user?.email ?? null,
+          name: ctx.user?.name ?? null,
+        })
+      ),
+    leave: protectedProcedure.mutation(({ ctx }) =>
+      leaveOrg({ openId: ctx.user!.openId, email: ctx.user?.email ?? null, name: ctx.user?.name ?? null })
+    ),
   }),
   dashboard: router({
     overview: protectedProcedure.query(async () => getDashboardOverview()),
