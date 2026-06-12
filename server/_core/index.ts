@@ -16,6 +16,7 @@ import {
   initPersistence,
   recordAuditEvent,
   recordMetricSnapshot,
+  resolveApiKey,
   runDueSwarmReportSubscriptions,
 } from "../db";
 import { createContext } from "./context";
@@ -44,13 +45,23 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
   throw new Error(`No available port found starting from ${startPort}`);
 }
 
-function hasValidIngestToken(req: express.Request): boolean {
+function bearerToken(req: express.Request): string | undefined {
   const header = req.headers.authorization;
-  const token =
-    typeof header === "string" && header.toLowerCase().startsWith("bearer ")
-      ? header.slice(7).trim()
-      : undefined;
-  return Boolean(ENV.ingestToken) && token === ENV.ingestToken;
+  return typeof header === "string" && header.toLowerCase().startsWith("bearer ")
+    ? header.slice(7).trim()
+    : undefined;
+}
+
+/**
+ * Resolve the tenant for a service-to-service request. A per-customer API key
+ * (acp_...) resolves to that customer's tenant; the legacy INGEST_TOKEN maps to
+ * the project owner (DEFAULT_TENANT). Returns null when unauthenticated.
+ */
+function resolveRestTenant(req: express.Request): string | null {
+  const token = bearerToken(req);
+  if (!token) return null;
+  if (ENV.ingestToken && token === ENV.ingestToken) return DEFAULT_TENANT;
+  return resolveApiKey(token);
 }
 
 const RISK_LEVELS = ["low", "medium", "high", "critical"] as const;
@@ -115,18 +126,13 @@ async function startServer() {
   });
   // Real event ingestion (service-to-service, bearer token auth).
   app.post("/api/ingest", async (req, res) => {
-    const header = req.headers.authorization;
-    const token =
-      typeof header === "string" && header.toLowerCase().startsWith("bearer ")
-        ? header.slice(7).trim()
-        : undefined;
-
-    if (!ENV.ingestToken || token !== ENV.ingestToken) {
+    const tenant = resolveRestTenant(req);
+    if (!tenant) {
       res.status(401).json({ ok: false, error: "Unauthorized" });
       return;
     }
 
-    await runWithTenant(DEFAULT_TENANT, async () => {
+    await runWithTenant(tenant, async () => {
       try {
         const body = req.body as { type?: string; payload?: Record<string, unknown> };
         const payload = body.payload ?? {};
@@ -156,7 +162,8 @@ async function startServer() {
 
   // Synchronous policy decision: an agent asks BEFORE acting.
   app.post("/api/policy-check", (req, res) => {
-    if (!hasValidIngestToken(req)) {
+    const tenant = resolveRestTenant(req);
+    if (!tenant) {
       res.status(401).json({ ok: false, error: "Unauthorized" });
       return;
     }
@@ -177,7 +184,7 @@ async function startServer() {
       return;
     }
 
-    runWithTenant(DEFAULT_TENANT, () => {
+    runWithTenant(tenant, () => {
       try {
         const result = checkActionPolicy({
           agentId: body.agentId as number,
@@ -198,7 +205,8 @@ async function startServer() {
 
   // Poll the status of an approval created by a policy check.
   app.get("/api/approval-status/:id", (req, res) => {
-    if (!hasValidIngestToken(req)) {
+    const tenant = resolveRestTenant(req);
+    if (!tenant) {
       res.status(401).json({ ok: false, error: "Unauthorized" });
       return;
     }
@@ -209,7 +217,7 @@ async function startServer() {
       return;
     }
 
-    runWithTenant(DEFAULT_TENANT, () => {
+    runWithTenant(tenant, () => {
       const decision = getApprovalDecision(approvalId);
       if (!decision) {
         res.status(404).json({ ok: false, error: "Approval not found" });

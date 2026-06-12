@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
@@ -2905,6 +2906,96 @@ async function seedTenant(tenantId: string): Promise<void> {
   seededTenants.add(tenantId);
 }
 
+// --- API keys (per-tenant, for external agent integrations) -----------------
+// Only the SHA-256 hash and a short display prefix are stored; the plaintext
+// key (acp_...) is shown to the customer exactly once on creation.
+
+type ApiKeyRecord = {
+  id: number;
+  tenantId: string;
+  label: string;
+  keyHash: string;
+  keyPrefix: string;
+  createdAt: number;
+  lastUsedAt: number | null;
+  revokedAt: number | null;
+};
+
+const apiKeysData: ApiKeyRecord[] = [];
+let nextApiKeyId = 1;
+
+function hashApiKey(fullKey: string): string {
+  return createHash("sha256").update(fullKey).digest("hex");
+}
+
+export type PublicApiKey = {
+  id: number;
+  label: string;
+  keyPrefix: string;
+  createdAt: number;
+  lastUsedAt: number | null;
+  revokedAt: number | null;
+};
+
+function toPublicApiKey(record: ApiKeyRecord): PublicApiKey {
+  return {
+    id: record.id,
+    label: record.label,
+    keyPrefix: record.keyPrefix,
+    createdAt: record.createdAt,
+    lastUsedAt: record.lastUsedAt,
+    revokedAt: record.revokedAt,
+  };
+}
+
+/** Create a new API key for the current tenant. Returns the plaintext once. */
+export function createApiKey(label: string): { fullKey: string; key: PublicApiKey } {
+  const tenantId = currentTenantId();
+  const fullKey = `acp_${randomBytes(24).toString("base64url")}`;
+  const record: ApiKeyRecord = {
+    id: nextApiKeyId++,
+    tenantId,
+    label: label.trim() || "Unbenannter Schlüssel",
+    keyHash: hashApiKey(fullKey),
+    keyPrefix: fullKey.slice(0, 12),
+    createdAt: Date.now(),
+    lastUsedAt: null,
+    revokedAt: null,
+  };
+  apiKeysData.unshift(record);
+  return { fullKey, key: toPublicApiKey(record) };
+}
+
+/** List the current tenant's API keys (without secrets). */
+export function listApiKeys(): PublicApiKey[] {
+  const tenantId = currentTenantId();
+  return apiKeysData
+    .filter(record => record.tenantId === tenantId)
+    .map(toPublicApiKey);
+}
+
+/** Revoke one of the current tenant's API keys. */
+export function revokeApiKey(id: number): { success: boolean } {
+  const tenantId = currentTenantId();
+  const record = apiKeysData.find(item => item.id === id && item.tenantId === tenantId);
+  if (!record) {
+    throw new Error("API-Schlüssel wurde nicht gefunden.");
+  }
+  if (!record.revokedAt) {
+    record.revokedAt = Date.now();
+  }
+  return { success: true };
+}
+
+/** Resolve a presented API key to its tenant, or null if invalid/revoked. */
+export function resolveApiKey(fullKey: string): string | null {
+  const hash = hashApiKey(fullKey);
+  const record = apiKeysData.find(item => item.keyHash === hash && !item.revokedAt);
+  if (!record) return null;
+  record.lastUsedAt = Date.now();
+  return record.tenantId;
+}
+
 export async function listPrivacyRules() {
   return listCustomPrivacyRules();
 }
@@ -3111,9 +3202,11 @@ function buildStateObject() {
     metricHistory: Array.from(metricHistoryData.entries()),
     teams: teamsData,
     permissions: permissionsData,
+    apiKeys: apiKeysData,
     privacy: exportCustomPrivacyRules(),
     counters: {
       nextAgentId,
+      nextApiKeyId,
       nextSwarmId,
       nextSwarmCommunicationId,
       nextSwarmMessageId,
@@ -3150,6 +3243,7 @@ function applyStateObject(state: Record<string, any> | null | undefined) {
   replaceArrayContents(metricsData, state.metrics);
   replaceArrayContents(teamsData, state.teams);
   replaceArrayContents(permissionsData, state.permissions);
+  replaceArrayContents(apiKeysData, state.apiKeys);
 
   if (Array.isArray(state.metricHistory)) {
     metricHistoryData.clear();
@@ -3164,6 +3258,7 @@ function applyStateObject(state: Record<string, any> | null | undefined) {
 
   const counters = state.counters ?? {};
   if (typeof counters.nextAgentId === "number") nextAgentId = counters.nextAgentId;
+  if (typeof counters.nextApiKeyId === "number") nextApiKeyId = counters.nextApiKeyId;
   if (typeof counters.nextSwarmId === "number") nextSwarmId = counters.nextSwarmId;
   if (typeof counters.nextSwarmCommunicationId === "number") nextSwarmCommunicationId = counters.nextSwarmCommunicationId;
   if (typeof counters.nextSwarmMessageId === "number") nextSwarmMessageId = counters.nextSwarmMessageId;

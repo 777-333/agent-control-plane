@@ -6,6 +6,9 @@ import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import {
   applyApprovalChainToApproval,
+  createApiKey,
+  listApiKeys,
+  revokeApiKey,
   createAgent,
   createAgentSwarm,
   dissolveAgentSwarm,
@@ -61,6 +64,15 @@ export const appRouter = router({
   }),
   controlPlane: router({
     snapshot: protectedProcedure.query(async () => getControlPlaneSnapshot()),
+  }),
+  apiKeys: router({
+    list: protectedProcedure.query(() => listApiKeys()),
+    create: protectedProcedure
+      .input(z.object({ label: z.string().min(1).max(80) }))
+      .mutation(({ input }) => createApiKey(input.label)),
+    revoke: protectedProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(({ input }) => revokeApiKey(input.id)),
   }),
   dashboard: router({
     overview: protectedProcedure.query(async () => getDashboardOverview()),
