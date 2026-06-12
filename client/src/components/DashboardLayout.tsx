@@ -33,6 +33,7 @@ import {
   FileSearch,
   Fingerprint,
   HelpCircle,
+  KeyRound,
   LayoutDashboard,
   LogOut,
   PanelLeft,
@@ -125,6 +126,14 @@ const menuItems = [
     path: "/observability",
     area: "Monitoring",
     description: "Kosten-, Latenz- und Fehlerindikatoren stehen als aktive Monitoring-Fläche bereit.",
+    statusLabel: "Live",
+  },
+  {
+    icon: KeyRound,
+    label: "API-Schlüssel & Integration",
+    path: "/integration",
+    area: "Integration",
+    description: "Eigene API-Schlüssel erzeugen und Agenten per Snippet anbinden.",
     statusLabel: "Live",
   },
   {

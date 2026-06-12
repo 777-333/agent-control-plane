@@ -16,6 +16,7 @@ import Home, {
   ObservabilityPage,
   PoliciesPage,
 } from "./pages/ControlPlane";
+import ApiKeys from "./pages/ApiKeys";
 import HelpCenterPage from "./pages/HelpCenter";
 import Login from "./pages/Login";
 
@@ -75,6 +76,11 @@ function Router() {
       <Route path="/observability">
         <DashboardShell>
           <ObservabilityPage />
+        </DashboardShell>
+      </Route>
+      <Route path="/integration">
+        <DashboardShell>
+          <ApiKeys />
         </DashboardShell>
       </Route>
       <Route path="/help">
