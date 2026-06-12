@@ -1307,7 +1307,11 @@ function synchronizeApprovalEscalations() {
 
 function refreshLiveMetrics() {
   const tick = Math.floor(Date.now() / 15000);
-  metricsData.forEach((metric, index) => {
+  // Only the owner's demo data (DEFAULT_TENANT) gets the simulated "live"
+  // drift. Real customer workspaces show their actual ingested metrics, so
+  // their costs grow only when real agents report usage.
+  const simulated = metricsData.filter(metric => tenantOf(metric) === DEFAULT_TENANT);
+  simulated.forEach((metric, index) => {
     const direction = (tick + index) % 2 === 0 ? 1 : -1;
     metric.latencyMs = Math.max(900, metric.latencyMs + direction * (20 + index * 12));
     metric.errorRate = Number(Math.max(0.2, metric.errorRate + direction * 0.08).toFixed(2));
