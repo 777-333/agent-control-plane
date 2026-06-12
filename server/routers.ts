@@ -9,6 +9,9 @@ import {
   createApiKey,
   listApiKeys,
   revokeApiKey,
+  getBillingOverview,
+  listPlans,
+  setTenantPlan,
   createAgent,
   createAgentSwarm,
   dissolveAgentSwarm,
@@ -73,6 +76,13 @@ export const appRouter = router({
     revoke: protectedProcedure
       .input(z.object({ id: z.number().int().positive() }))
       .mutation(({ input }) => revokeApiKey(input.id)),
+  }),
+  billing: router({
+    overview: protectedProcedure.query(() => getBillingOverview()),
+    plans: protectedProcedure.query(() => listPlans()),
+    selectPlan: protectedProcedure
+      .input(z.object({ planId: z.string().min(1) }))
+      .mutation(({ input }) => setTenantPlan(input.planId)),
   }),
   dashboard: router({
     overview: protectedProcedure.query(async () => getDashboardOverview()),

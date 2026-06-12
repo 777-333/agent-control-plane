@@ -30,6 +30,7 @@ import {
   BrainCircuit,
   ChartColumn,
   ChevronRight,
+  CreditCard,
   FileSearch,
   Fingerprint,
   HelpCircle,
@@ -134,6 +135,14 @@ const menuItems = [
     path: "/integration",
     area: "Integration",
     description: "Eigene API-Schlüssel erzeugen und Agenten per Snippet anbinden.",
+    statusLabel: "Live",
+  },
+  {
+    icon: CreditCard,
+    label: "Abrechnung & Nutzung",
+    path: "/billing",
+    area: "Abrechnung",
+    description: "Aktueller Tarif, Nutzung und verfügbare Tarife.",
     statusLabel: "Live",
   },
   {

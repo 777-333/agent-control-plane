@@ -17,6 +17,7 @@ import Home, {
   PoliciesPage,
 } from "./pages/ControlPlane";
 import ApiKeys from "./pages/ApiKeys";
+import Billing from "./pages/Billing";
 import HelpCenterPage from "./pages/HelpCenter";
 import Login from "./pages/Login";
 
@@ -81,6 +82,11 @@ function Router() {
       <Route path="/integration">
         <DashboardShell>
           <ApiKeys />
+        </DashboardShell>
+      </Route>
+      <Route path="/billing">
+        <DashboardShell>
+          <Billing />
         </DashboardShell>
       </Route>
       <Route path="/help">

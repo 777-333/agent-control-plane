@@ -100,3 +100,18 @@ Verlaufsdatei anlegen und fortschreiben; anschließend mit Schritt 1 beginnen.
 `package.json` + README), dependency-frei (globales fetch). Gleiche API wie das
 Python-SDK (`policyCheck`, `ensureAllowed`, `waitForApproval`, `ingestAudit/
 Metric/Guardrail`). Beispiel `examples/js_agent.mjs`. Handbuch ergänzt.
+
+## Runde 13 — Schritt 2 (Teil 1): Tarife + Limits (ohne Zahlung)
+**Nutzer:** 4-Tier-Modell gewählt; Highlights erklärt bekommen; dann umsetzen –
+erst interne Limits, Stripe später.
+**Aktion:**
+- `server/plans.ts`: Tarife Free/Starter/Team/Business/Enterprise (Limits +
+  Preise). `PRICING.md` als Übersicht.
+- Pro Tenant: Tarif + Monats-Nutzungszähler (JSONB-persistiert). Owner =
+  Enterprise (unbegrenzt).
+- Durchsetzung: Agenten-Limit hart (Anlegen blockiert), API-Ereignisse
+  (policy-check + ingest) gezählt + bei Überschreitung markiert.
+- tRPC `billing`-Router (overview/plans/selectPlan); UI-Seite „Abrechnung &
+  Nutzung" (`/billing`) mit Nutzungsbalken + Tarifauswahl.
+- Tests: `server/billing.test.ts` (Quota + Zähler). 78 grün / 2 skip.
+**Offen:** Stripe (2b), Team-Tenancy (3).

@@ -15,6 +15,7 @@ import {
   getApprovalDecision,
   initPersistence,
   recordAuditEvent,
+  recordBillableEvent,
   recordMetricSnapshot,
   resolveApiKey,
   runDueSwarmReportSubscriptions,
@@ -133,6 +134,7 @@ async function startServer() {
     }
 
     await runWithTenant(tenant, async () => {
+      recordBillableEvent();
       try {
         const body = req.body as { type?: string; payload?: Record<string, unknown> };
         const payload = body.payload ?? {};
@@ -185,6 +187,7 @@ async function startServer() {
     }
 
     runWithTenant(tenant, () => {
+      recordBillableEvent();
       try {
         const result = checkActionPolicy({
           agentId: body.agentId as number,

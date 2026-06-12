@@ -6,6 +6,7 @@ import postgres from "postgres";
 import { InsertUser, appCollections, approvalChains, approvalStages, swarmMessages, users } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 import { currentTenantId, DEFAULT_TENANT, runWithTenant } from "./_core/tenant";
+import { DEFAULT_PLAN, PLANS, PLAN_IDS, isPlanId, type Plan, type PlanId } from "./plans";
 import {
   applySwarmAutonomyAction as applySwarmAutonomyActionEntry,
   createSwarmAutonomyRun as createSwarmAutonomyRunEntry,
@@ -1525,6 +1526,7 @@ function buildSwarmCommunicationLinks(swarmId: number, members: AgentRecord[], t
 }
 
 export async function createAgent(input: AgentMutationInput) {
+  assertAgentQuota();
   const newAgent: AgentRecord = {
     id: nextAgentId++,
     name: input.name,
@@ -1565,6 +1567,7 @@ export async function updateAgent(input: AgentMutationInput & { id: number }) {
 }
 
 export async function duplicateAgent(input: AgentMutationInput & { sourceAgentId: number }) {
+  assertAgentQuota();
   const sourceAgent = findOwned(agentsData, agent => agent.id === input.sourceAgentId);
 
   if (!sourceAgent) {
@@ -3000,6 +3003,101 @@ export function resolveApiKey(fullKey: string): string | null {
   return record.tenantId;
 }
 
+// --- Plans, usage & limits (per tenant) -------------------------------------
+const tenantPlans: Record<string, PlanId> = {};
+const tenantUsage: Record<string, { month: string; events: number }> = {};
+
+function currentMonthKey(): string {
+  const now = new Date();
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function planIdForTenant(tenantId: string): PlanId {
+  // The project owner (demo) is effectively unlimited.
+  if (tenantId === DEFAULT_TENANT) return "enterprise";
+  return tenantPlans[tenantId] ?? DEFAULT_PLAN;
+}
+
+function currentPlan(): Plan {
+  return PLANS[planIdForTenant(currentTenantId())];
+}
+
+function ensureUsageMonth(tenantId: string): { month: string; events: number } {
+  const month = currentMonthKey();
+  const usage = tenantUsage[tenantId];
+  if (!usage || usage.month !== month) {
+    tenantUsage[tenantId] = { month, events: 0 };
+  }
+  return tenantUsage[tenantId];
+}
+
+/** Count one billable API event (policy-check / ingest) for the current tenant. */
+export function recordBillableEvent(): void {
+  ensureUsageMonth(currentTenantId()).events += 1;
+}
+
+/** Throw when the current tenant has reached its agent quota. */
+function assertAgentQuota(): void {
+  const plan = currentPlan();
+  const used = owned(agentsData).length;
+  if (used >= plan.maxAgents) {
+    throw new Error(
+      `Agenten-Limit (${plan.maxAgents}) im Tarif „${plan.name}" erreicht. ` +
+        `Bitte einen Agenten löschen oder den Tarif upgraden.`
+    );
+  }
+}
+
+export type BillingOverview = {
+  plan: {
+    id: PlanId;
+    name: string;
+    priceMonthlyEur: number | null;
+    maxAgents: number;
+    maxEventsPerMonth: number;
+    auditRetentionDays: number;
+    maxSeats: number;
+  };
+  usage: { agents: number; events: number; month: string };
+  agentLimitReached: boolean;
+  overEventLimit: boolean;
+};
+
+export function getBillingOverview(): BillingOverview {
+  const tenantId = currentTenantId();
+  const plan = currentPlan();
+  const agents = owned(agentsData).length;
+  const usage = ensureUsageMonth(tenantId);
+  return {
+    plan: {
+      id: plan.id,
+      name: plan.name,
+      priceMonthlyEur: plan.priceMonthlyEur,
+      maxAgents: plan.maxAgents,
+      maxEventsPerMonth: plan.maxEventsPerMonth,
+      auditRetentionDays: plan.auditRetentionDays,
+      maxSeats: plan.maxSeats,
+    },
+    usage: { agents, events: usage.events, month: usage.month },
+    agentLimitReached: agents >= plan.maxAgents,
+    overEventLimit: usage.events > plan.maxEventsPerMonth,
+  };
+}
+
+/** Plan catalog for the pricing/comparison UI. */
+export function listPlans() {
+  return PLAN_IDS.map(id => PLANS[id]);
+}
+
+/** Switch the current tenant's plan (no payment yet). Owner is fixed. */
+export function setTenantPlan(planId: string): BillingOverview {
+  const tenantId = currentTenantId();
+  if (tenantId !== DEFAULT_TENANT && isPlanId(planId)) {
+    tenantPlans[tenantId] = planId;
+  }
+  return getBillingOverview();
+}
+
 export async function listPrivacyRules() {
   return listCustomPrivacyRules();
 }
@@ -3207,6 +3305,8 @@ function buildStateObject() {
     teams: teamsData,
     permissions: permissionsData,
     apiKeys: apiKeysData,
+    tenantPlans,
+    tenantUsage,
     privacy: exportCustomPrivacyRules(),
     counters: {
       nextAgentId,
@@ -3248,6 +3348,15 @@ function applyStateObject(state: Record<string, any> | null | undefined) {
   replaceArrayContents(teamsData, state.teams);
   replaceArrayContents(permissionsData, state.permissions);
   replaceArrayContents(apiKeysData, state.apiKeys);
+
+  if (state.tenantPlans && typeof state.tenantPlans === "object") {
+    for (const key of Object.keys(tenantPlans)) delete tenantPlans[key];
+    Object.assign(tenantPlans, state.tenantPlans);
+  }
+  if (state.tenantUsage && typeof state.tenantUsage === "object") {
+    for (const key of Object.keys(tenantUsage)) delete tenantUsage[key];
+    Object.assign(tenantUsage, state.tenantUsage);
+  }
 
   if (Array.isArray(state.metricHistory)) {
     metricHistoryData.clear();
