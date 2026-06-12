@@ -37,8 +37,11 @@ export default function ApiKeys() {
   const [label, setLabel] = useState("");
   const [createdKey, setCreatedKey] = useState<string | null>(null);
 
+  const [selectedAgentId, setSelectedAgentId] = useState<number | null>(null);
+
   const utils = trpc.useUtils();
   const keysQuery = trpc.apiKeys.list.useQuery();
+  const agentsQuery = trpc.agents.list.useQuery();
 
   const createMutation = trpc.apiKeys.create.useMutation({
     onSuccess: result => {
@@ -58,6 +61,8 @@ export default function ApiKeys() {
     onError: error => toast.error(error.message),
   });
 
+  const agents = agentsQuery.data ?? [];
+  const agentId = selectedAgentId ?? agents[0]?.id ?? 1;
   const keyForSnippet = createdKey ?? "acp_DEIN_API_KEY";
   const snippet = `pip install -e sdk/python
 
@@ -66,12 +71,12 @@ from agent_control_plane import AgentControlPlane
 acp = AgentControlPlane("${origin}", "${keyForSnippet}")
 
 # Vor der Aktion fragen (blockiert, falls eine Freigabe nötig ist)
-acp.ensure_allowed(agent_id=1, action_type="erp.payment.execute")
+acp.ensure_allowed(agent_id=${agentId}, action_type="erp.payment.execute")
 
 # ... deine eigentliche Aktion / dein LLM-Aufruf ...
 
 # Danach melden
-acp.ingest_audit(agent_id=1, category="Ops",
+acp.ingest_audit(agent_id=${agentId}, category="Ops",
                  title="Aktion ausgeführt", detail="...")`;
 
   const keys = keysQuery.data ?? [];
@@ -192,6 +197,26 @@ acp.ingest_audit(agent_id=1, category="Ops",
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
+          {agents.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <Label htmlFor="agent" className="text-sm">Agent</Label>
+              <select
+                id="agent"
+                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                value={agentId}
+                onChange={event => setSelectedAgentId(Number(event.target.value))}
+              >
+                {agents.map(agent => (
+                  <option key={agent.id} value={agent.id}>
+                    #{agent.id} – {agent.name}
+                  </option>
+                ))}
+              </select>
+              <span className="text-xs text-muted-foreground">
+                Die gewählte Agent-ID wird unten ins Snippet eingesetzt.
+              </span>
+            </div>
+          )}
           <pre className="overflow-x-auto rounded-lg bg-muted p-4 text-xs leading-relaxed">
             <code>{snippet}</code>
           </pre>
